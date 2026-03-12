@@ -260,14 +260,19 @@ def deep_analyze(text: str) -> dict:
         ]
 
     if TEXTSTAT_AVAILABLE:
-        result['readability'] = {
-            'flesch_ease':    round(_textstat.flesch_reading_ease(text), 1),
-            'flesch_kincaid': round(_textstat.flesch_kincaid_grade(text), 1),
-            'gunning_fog':    round(_textstat.gunning_fog(text), 1),
-            'avg_word_len':   round(
-                sum(len(clean_word(w)) for w in words_raw if clean_word(w))
-                / max(1, len([w for w in words_raw if clean_word(w)])), 1),
-        }
+        try:
+            result['readability'] = {
+                'flesch_ease':    round(_textstat.flesch_reading_ease(text), 1),
+                'flesch_kincaid': round(_textstat.flesch_kincaid_grade(text), 1),
+                'gunning_fog':    round(_textstat.gunning_fog(text), 1),
+                'avg_word_len':   round(
+                    sum(len(clean_word(w)) for w in words_raw if clean_word(w))
+                    / max(1, len([w for w in words_raw if clean_word(w)])), 1),
+            }
+        except Exception:
+            # pyphen (textstat dependency) fails inside Nuitka binaries due to
+            # resource-loading incompatibility -- degrade gracefully.
+            pass
 
     if not SPACY_AVAILABLE or NLP is None:
         return result
@@ -1512,6 +1517,9 @@ class ConstrainedApp:
         return c
 
     def _on_builder_change(self, *_):
+        # Guard: builder view may not be constructed yet during __init__
+        if not hasattr(self, 'feas_inner'):
+            return
         c  = self._constraints_from_builder()
         ws = check_feasibility(c)
         for w in self.feas_inner.winfo_children():

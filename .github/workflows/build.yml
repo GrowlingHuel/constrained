@@ -18,7 +18,7 @@ jobs:
           - os: ubuntu-22.04
             artifact_name: constrained-linux
             binary_path:   constrained.bin
-          - os: macos-latest
+          - os: macos-13
             artifact_name: constrained-macos
             binary_path:   constrained.bin
           - os: windows-2022
