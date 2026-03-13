@@ -15,15 +15,22 @@ import re
 import time
 import json
 import os
+import threading
+import urllib.request
+import urllib.error
 from datetime import datetime
 
 # ═══════════════════════════════════════════════════════════════════
 # APP DATA DIRECTORY  (persistent storage)
 # ═══════════════════════════════════════════════════════════════════
 
-APP_DIR      = os.path.join(os.path.expanduser("~"), ".tether")
-HISTORY_FILE = os.path.join(APP_DIR, "history.json")
-PRESETS_FILE = os.path.join(APP_DIR, "presets.json")
+VERSION = "0.3"
+GITHUB_REPO = "GrowlingHuel/tether"
+
+APP_DIR           = os.path.join(os.path.expanduser("~"), ".tether")
+HISTORY_FILE      = os.path.join(APP_DIR, "history.json")
+PRESETS_FILE      = os.path.join(APP_DIR, "presets.json")
+ONBOARDING_FILE   = os.path.join(APP_DIR, "seen_onboarding")
 
 
 def ensure_app_dir():
@@ -68,6 +75,42 @@ def save_user_presets(presets: list):
             json.dump(presets, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"Warning: could not save presets: {e}")
+
+
+def fetch_latest_version() -> str | None:
+    """Fetch latest release tag from GitHub. Returns tag string or None."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(url,
+            headers={"User-Agent": f"Tether/{VERSION}"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("tag_name", "").lstrip("v")
+    except Exception:
+        return None
+
+
+def is_newer(remote: str, local: str) -> bool:
+    """Return True if remote version is strictly newer than local."""
+    try:
+        r = tuple(int(x) for x in remote.split("."))
+        l = tuple(int(x) for x in local.split("."))
+        return r > l
+    except Exception:
+        return False
+
+
+def onboarding_seen() -> bool:
+    return os.path.exists(ONBOARDING_FILE)
+
+
+def mark_onboarding_seen():
+    ensure_app_dir()
+    try:
+        with open(ONBOARDING_FILE, "w") as f:
+            f.write("1")
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -462,7 +505,7 @@ class ConstrainedApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("TETHER  v0.2")
+        self.root.title("TETHER  v0.3")
         self.root.configure(bg=BG)
         self.root.geometry("1200x760")
         self.root.minsize(880, 560)
@@ -506,6 +549,9 @@ class ConstrainedApp:
 
         self._build_ui()
         self._show_view("editor")
+        self._start_update_check()
+        if not onboarding_seen():
+            self.root.after(600, self._show_onboarding)
 
     # ─────────────────────────────────────────────────────────────
     # PRESET HELPERS
@@ -550,6 +596,19 @@ class ConstrainedApp:
 
         self.body = tk.Frame(self.root, bg=BG)
         self.body.pack(fill=tk.BOTH, expand=True)
+
+        # Update notification banner (hidden until needed)
+        self._update_banner = tk.Frame(self.root, bg="#1a1a0a")
+        self._update_lbl    = tk.Label(
+            self._update_banner, text="", fg=AMBER, bg="#1a1a0a",
+            font=("Courier New", 9), pady=4)
+        self._update_lbl.pack(side=tk.LEFT, padx=16)
+        tk.Button(
+            self._update_banner, text="✕", fg=DIM, bg="#1a1a0a",
+            relief=tk.FLAT, font=("Courier New", 9), bd=0,
+            activebackground="#1a1a0a", cursor="hand2",
+            command=lambda: self._update_banner.pack_forget()
+        ).pack(side=tk.RIGHT, padx=8)
 
         self._build_editor_view()
         self._build_history_view()
@@ -1544,6 +1603,269 @@ class ConstrainedApp:
         c = self._constraints_from_builder()
         self.custom_constraints = c if c else None
         self._reset_session()
+
+    # ─────────────────────────────────────────────────────────────
+    # UPDATE CHECK
+    # ─────────────────────────────────────────────────────────────
+
+    def _start_update_check(self):
+        """Check for updates in background thread — never blocks UI."""
+        def _worker():
+            latest = fetch_latest_version()
+            if latest and is_newer(latest, VERSION):
+                self.root.after(0, lambda: self._show_update_banner(latest))
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _show_update_banner(self, latest: str):
+        """Show the update notification banner above the main body."""
+        self._update_lbl.config(
+            text=f"✦  Tether v{latest} is available  —  "
+                 f"github.com/{GITHUB_REPO}/releases"
+        )
+        self._update_banner.pack(fill=tk.X, before=self.body)
+
+    # ─────────────────────────────────────────────────────────────
+    # ONBOARDING TOUR
+    # ─────────────────────────────────────────────────────────────
+
+    def _show_onboarding(self):
+        """Launch the first-run onboarding tooltip tour."""
+        TetherOnboarding(self.root, self)
+
+
+class TetherOnboarding:
+    """
+    Step-by-step onboarding overlay for first-time users.
+    Each step shows a floating tooltip near a key UI element.
+    """
+
+    STEPS = [
+        {
+            "title": "Welcome to Tether",
+            "body": (
+                "Tether is a writing constraint engine.\n\n"
+                "You choose a rule — every word must be 4 letters, "
+                "or you can only use each word once, or you must "
+                "cycle through the alphabet — and Tether holds you to it.\n\n"
+                "This tour will walk you through the key parts of the app."
+            ),
+            "anchor": "center",
+        },
+        {
+            "title": "Choose a Mode",
+            "body": (
+                "The left sidebar lists all available modes.\n\n"
+                "Click any mode to activate it. The coloured dot "
+                "shows which mode is currently active.\n\n"
+                "Start with Free Write if you just want to explore, "
+                "or try Alphabet Cycle for your first real constraint."
+            ),
+            "anchor": "sidebar",
+        },
+        {
+            "title": "Your Stats",
+            "body": (
+                "Below the mode list you'll find live stats:\n\n"
+                "Words — total word count\n"
+                "WPM — words per minute (once you start typing)\n"
+                "Comply — what percentage of words follow the rule\n"
+                "Violations — how many rule breaks so far\n"
+                "Time — elapsed session time"
+            ),
+            "anchor": "sidebar",
+        },
+        {
+            "title": "Next Letter",
+            "body": (
+                "When you're using Alphabet Cycle mode, the large "
+                "letter shown here tells you what letter your next "
+                "word must start with.\n\n"
+                "It advances automatically as you type each word."
+            ),
+            "anchor": "sidebar",
+        },
+        {
+            "title": "Language Analysis",
+            "body": (
+                "After a short pause in typing, Tether analyses your "
+                "writing and shows:\n\n"
+                "Richness — vocabulary diversity\n"
+                "Repeats — overused root words\n"
+                "Readability — Flesch score and grade level\n"
+                "Fog index — complexity measure\n\n"
+                "These update automatically as you write."
+            ),
+            "anchor": "sidebar",
+        },
+        {
+            "title": "The Writing Area",
+            "body": (
+                "This is where you write.\n\n"
+                "Violations appear as coloured messages below the "
+                "text as you type:\n\n"
+                "Red — hard rule breaks\n"
+                "Amber — warnings\n"
+                "Blue — informational\n\n"
+                "The timer starts on your very first keystroke."
+            ),
+            "anchor": "editor",
+        },
+        {
+            "title": "Save, Reset, Export",
+            "body": (
+                "The three buttons in the top bar:\n\n"
+                "↺ Reset — clear the text and start a new session\n"
+                "◼ Save — save this session to your history\n"
+                "↓ Export — save the text as a .txt file on your Desktop\n\n"
+                "Saved sessions are available in the History view."
+            ),
+            "anchor": "topbar",
+        },
+        {
+            "title": "History and Builder",
+            "body": (
+                "The top-right navigation has three views:\n\n"
+                "✎ Editor — this writing view (you're here now)\n"
+                "◷ History — all your saved sessions with stats\n"
+                "⊞ Builder — create your own custom constraints "
+                "and save them as personal presets\n\n"
+                "That's everything. Now write something."
+            ),
+            "anchor": "nav",
+        },
+    ]
+
+    def __init__(self, root: tk.Tk, app: "ConstrainedApp"):
+        self.root  = root
+        self.app   = app
+        self.step  = 0
+        self.win   = None
+        self._show_step()
+
+    def _show_step(self):
+        if self.win:
+            self.win.destroy()
+            self.win = None
+
+        if self.step >= len(self.STEPS):
+            mark_onboarding_seen()
+            return
+
+        s = self.STEPS[self.step]
+        total = len(self.STEPS)
+
+        # Create floating tooltip window
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.configure(bg=BORDER)
+        win.attributes("-topmost", True)
+        self.win = win
+
+        # Outer frame with accent border
+        outer = tk.Frame(win, bg=ACCENT, padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True)
+        inner = tk.Frame(outer, bg=BG2, padx=20, pady=16)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        # Step counter
+        tk.Label(inner, text=f"STEP {self.step + 1} OF {total}",
+                 fg=ACCENT, bg=BG2,
+                 font=("Courier New", 8, "bold")).pack(anchor=tk.W)
+
+        # Title
+        tk.Label(inner, text=s["title"], fg=TEXT, bg=BG2,
+                 font=("Courier New", 13, "bold"),
+                 wraplength=340, justify=tk.LEFT).pack(anchor=tk.W, pady=(4, 0))
+
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X, pady=8)
+
+        # Body text
+        tk.Label(inner, text=s["body"], fg=DIM, bg=BG2,
+                 font=SERIF_SM, wraplength=340,
+                 justify=tk.LEFT).pack(anchor=tk.W)
+
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X, pady=(12, 8))
+
+        # Navigation buttons
+        btn_row = tk.Frame(inner, bg=BG2)
+        btn_row.pack(fill=tk.X)
+
+        tk.Button(btn_row, text="Skip tour", fg=DIM2, bg=BG2,
+                  relief=tk.FLAT, font=("Courier New", 8), bd=0,
+                  activebackground=BG2, cursor="hand2",
+                  command=self._skip).pack(side=tk.LEFT)
+
+        if self.step > 0:
+            tk.Button(btn_row, text="← Back", fg=DIM, bg=BG2,
+                      relief=tk.FLAT, font=("Courier New", 9), bd=0,
+                      activebackground=BG2, cursor="hand2",
+                      command=self._prev).pack(side=tk.RIGHT, padx=(6, 0))
+
+        is_last = (self.step == total - 1)
+        next_txt = "Done  ✓" if is_last else "Next →"
+        next_fg  = GREEN  if is_last else ACCENT
+        tk.Button(btn_row, text=next_txt, fg=next_fg, bg=BG2,
+                  relief=tk.FLAT, font=("Courier New", 9, "bold"), bd=0,
+                  activebackground=BG2, cursor="hand2",
+                  command=self._next).pack(side=tk.RIGHT)
+
+        # Position the tooltip
+        self.root.update_idletasks()
+        win.update_idletasks()
+        self._position(win, s["anchor"])
+
+    def _position(self, win: tk.Toplevel, anchor: str):
+        """Position the tooltip near the relevant UI element."""
+        rw = self.root.winfo_rootx()
+        ry = self.root.winfo_rooty()
+        rW = self.root.winfo_width()
+        rH = self.root.winfo_height()
+        wW = win.winfo_reqwidth()
+        wH = win.winfo_reqheight()
+
+        if anchor == "center":
+            x = rw + (rW - wW) // 2
+            y = ry + (rH - wH) // 2
+        elif anchor == "sidebar":
+            # Right of the sidebar
+            x = rw + 240
+            y = ry + 120
+        elif anchor == "editor":
+            # Centre of the writing area
+            x = rw + (rW - wW) // 2
+            y = ry + (rH - wH) // 2
+        elif anchor == "topbar":
+            # Below the top bar, left of centre
+            x = rw + rW - wW - 40
+            y = ry + 60
+        elif anchor == "nav":
+            # Below the nav buttons, right side
+            x = rw + rW - wW - 20
+            y = ry + 60
+        else:
+            x = rw + (rW - wW) // 2
+            y = ry + (rH - wH) // 2
+
+        # Keep on screen
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x  = max(0, min(x, sw - wW))
+        y  = max(0, min(y, sh - wH))
+        win.geometry(f"+{x}+{y}")
+
+    def _next(self):
+        self.step += 1
+        self._show_step()
+
+    def _prev(self):
+        self.step = max(0, self.step - 1)
+        self._show_step()
+
+    def _skip(self):
+        if self.win:
+            self.win.destroy()
+        mark_onboarding_seen()
 
     # ─────────────────────────────────────────────────────────────
     # HELPERS
