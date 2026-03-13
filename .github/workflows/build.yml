@@ -1,12 +1,13 @@
-name: Build Tether
+name: Build Constrained
 
+# Triggers on any tag beginning with 'v' — e.g. v0.2, v1.0
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: write   # needed to create releases and upload assets
 
 jobs:
   build:
@@ -15,38 +16,45 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            artifact_name: tether-linux
-            binary_path:   tether.bin
-          - os: macos-latest
-            artifact_name: tether-macos
-            binary_path:   tether.bin
+            artifact_name: constrained-linux
+            binary_path:   constrained.bin
+          - os: macos-13
+            artifact_name: constrained-macos
+            binary_path:   constrained.bin
           - os: windows-2022
-            artifact_name: tether-windows
-            binary_path:   tether.exe
+            artifact_name: constrained-windows
+            binary_path:   constrained.exe
 
     runs-on: ${{ matrix.os }}
 
     steps:
+      # ── 1. Checkout ────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── 2. Python ──────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      # ── 3. System tkinter (Linux only) ─────────────────────────
       - name: Install tkinter (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y python3-tk
 
+      # ── 4. Python dependencies ─────────────────────────────────
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install nuitka spacy textstat
 
+      # ── 5. spaCy model ─────────────────────────────────────────
       - name: Download spaCy model
         run: python -m spacy download en_core_web_sm
 
+      # ── 6. Find spaCy model path ────────────────────────────────
+      #       Writes SPACY_MODEL_PATH to $GITHUB_ENV so later steps can read it.
       - name: Locate spaCy model directory (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
@@ -63,6 +71,7 @@ jobs:
           $MODEL_PATH = python -c "import en_core_web_sm, os; print(os.path.dirname(en_core_web_sm.__file__))"
           echo "SPACY_MODEL_PATH=$MODEL_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # ── 7. Nuitka build (Linux / macOS) ────────────────────────
       - name: Build with Nuitka (Linux / macOS)
         if: runner.os != 'Windows'
         run: |
@@ -71,11 +80,11 @@ jobs:
             --enable-plugin=tk-inter \
             --include-data-dir="${{ env.SPACY_MODEL_PATH }}"=en_core_web_sm \
             --include-data-file=wordlist.txt=wordlist.txt \
-            --include-package-data=pyphen \
-            --output-filename=tether.bin \
+            --output-filename=constrained.bin \
             --assume-yes-for-downloads \
-            tether.py
+            constrained.py
 
+      # ── 8. Nuitka build (Windows) ──────────────────────────────
       - name: Build with Nuitka (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -85,11 +94,12 @@ jobs:
             --enable-plugin=tk-inter `
             --include-data-dir="${{ env.SPACY_MODEL_PATH }}"=en_core_web_sm `
             --include-data-file=wordlist.txt=wordlist.txt `
-            --include-package-data=pyphen `
             --windows-console-mode=disable `
             --assume-yes-for-downloads `
-            tether.py
+            constrained.py
 
+      # ── 9. Upload binary as workflow artifact ──────────────────
+      #       (visible in the Actions tab even before a release is made)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -97,19 +107,31 @@ jobs:
           path: ${{ matrix.binary_path }}
           if-no-files-found: error
 
+      # ── 10. Attach binary to the GitHub Release ─────────────────
+      #        The release is created automatically from the tag.
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.binary_path }}
-          name: "Tether ${{ github.ref_name }}"
+          name: "Constrained ${{ github.ref_name }}"
           body: |
-            ## Tether ${{ github.ref_name }}
+            ## Constrained ${{ github.ref_name }}
+
+            Download the binary for your platform below:
 
             | Platform | File |
             |----------|------|
-            | Linux    | `tether-linux` |
-            | macOS    | `tether-macos` |
-            | Windows  | `tether-windows.exe` |
+            | Linux    | `constrained-linux` (rename from constrained.bin) |
+            | macOS    | `constrained-macos` (rename from constrained.bin) |
+            | Windows  | `constrained-windows.exe` |
 
-            **Linux / macOS:** `chmod +x tether-linux && ./tether-linux`
-            **Windows:** double-click. Click "More info" then "Run anyway" if SmartScreen appears.
+            **Linux / macOS:** after download, make executable with:
+            ```
+            chmod +x constrained-linux
+            ./constrained-linux
+            ```
+
+            **Windows:** double-click `constrained-windows.exe`.
+            You may see a SmartScreen warning on first run — click "More info" then "Run anyway".
+
+            Requires no installation. No Python needed.
