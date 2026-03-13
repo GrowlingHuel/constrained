@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CONSTRAINED — typing constraint engine  v0.2
+TETHER — typing constraint engine  v0.2
 CPython + tkinter. Optional: spaCy, textstat.
 Run: python3 constrained.py
 
@@ -21,7 +21,7 @@ from datetime import datetime
 # APP DATA DIRECTORY  (persistent storage)
 # ═══════════════════════════════════════════════════════════════════
 
-APP_DIR      = os.path.join(os.path.expanduser("~"), ".constrained")
+APP_DIR      = os.path.join(os.path.expanduser("~"), ".tether")
 HISTORY_FILE = os.path.join(APP_DIR, "history.json")
 PRESETS_FILE = os.path.join(APP_DIR, "presets.json")
 
@@ -462,7 +462,7 @@ class ConstrainedApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("CONSTRAINED  v0.2")
+        self.root.title("TETHER  v0.2")
         self.root.configure(bg=BG)
         self.root.geometry("1200x760")
         self.root.minsize(880, 560)
@@ -526,7 +526,7 @@ class ConstrainedApp:
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
-        tk.Label(hdr, text="CONSTRAINED", fg=ACCENT, bg=BG2,
+        tk.Label(hdr, text="TETHER", fg=ACCENT, bg=BG2,
                  font=("Courier New", 14, "bold")).pack(side=tk.LEFT, padx=20)
         tk.Label(hdr, text="typing constraint engine", fg=DIM2, bg=BG2,
                  font=SERIF_SM).pack(side=tk.LEFT, padx=(0, 24))

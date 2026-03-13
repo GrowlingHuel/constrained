@@ -1,4 +1,4 @@
-# Constrained
+# Tether
 
 A typing constraint engine for writers.
 
