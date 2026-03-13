@@ -2,9 +2,9 @@
 """
 TETHER — typing constraint engine  v0.2
 CPython + tkinter. Optional: spaCy, textstat.
-Run: python3 constrained.py
+Run: python3 tether.py
 
-Persistent data stored in: ~/.constrained/
+Persistent data stored in: ~/.tether/
   history.json   — all saved sessions (survives between launches)
   presets.json   — user-saved custom presets
 """
