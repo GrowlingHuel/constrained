@@ -1,0 +1,116 @@
+TETHER — PROJECT TLDR
+For handoff to another Claude agent
+=====================================
+
+WHAT IT IS
+----------
+Tether is a desktop writing constraint engine. The user picks a rule — every
+word must be exactly 4 letters, or each word must start with the next letter
+of the alphabet, or no word root can be repeated — and Tether enforces it in
+real time, measuring compliance as the user types. It's a creative writing
+tool for writers who use constraints as a generative technique (Oulipo, etc).
+
+GITHUB
+------
+https://github.com/GrowlingHuel/tether
+Developer: Jesse Clark (GrowlingHuel), Linux Mint, ~/Projects/typing/
+
+CURRENT VERSION
+---------------
+v0.3.2 — shipping, stable, three-platform binaries available
+
+STACK
+-----
+- Language: Python 3.10 (single file: tether.py, ~1900 lines)
+- GUI: tkinter (stdlib only — no external GUI deps)
+- Optional NLP: spaCy (en_core_web_sm) + textstat for linguistic analysis
+- Wordlist: SCOWL-80, 357,325 words at ~/Projects/typing/wordlist.txt
+- Persistent data: ~/.tether/history.json, presets.json, seen_onboarding
+- Build: Nuitka --onefile, via GitHub Actions
+- Distribution: GitHub Releases (direct binary download, no installer)
+
+BUILT-IN CONSTRAINTS
+--------------------
+wordLength      — every word must be exactly N letters
+alphaCycle      — each word starts with the next alphabet letter (A→B→C...)
+noRepeat        — no repeated root words (lemma-aware via spaCy)
+wordGoal        — must reach N words
+timeLimit       — session ends at N seconds
+startLetterMax  — each starting letter used at most N times
+pangram         — use every alphabet letter within N words
+dictCheck       — every word must be in the wordlist
+
+BUILT-IN PRESETS (11)
+---------------------
+Free Write, Three/Four/Five-Letter Words, Alphabet Cycle, No Repeated Words,
+500-Word Sprint, 1000-Word Sprint, Pangram in 100, Letter Budget, Gauntlet
+
+USER FEATURES
+-------------
+- Three views: Editor, History, Builder
+- Constraint Builder: mix any constraints, check feasibility, save as named preset
+- Persistent history: all saved sessions survive between launches
+- Persistent custom presets: user-built presets saved to disk
+- Live stats: word count, WPM, compliance %, violations, timer
+- Violation panel: red/amber/blue severity levels, updates on every keystroke
+- Language panel: richness, repeats, unknown words, Flesch readability,
+  grade level, Gunning Fog, avg word length (1.5s debounce, spaCy+textstat)
+- Pangram tracker: shows missing letters in real time
+- Alphabet cycle tracker: shows next required letter large in sidebar
+- Letter frequency reference chart
+- Export session as .txt to Desktop
+- First-run onboarding tour (8-step tooltip overlay, dismisses permanently)
+- Update notifications: checks GitHub API on launch, shows banner if newer
+  version exists (background thread, fails silently if offline)
+
+GITHUB ACTIONS BUILD PIPELINE
+------------------------------
+Trigger: any tag matching v*
+Matrix: ubuntu-22.04 (tether-linux), macos-latest (tether-macos),
+        windows-2022 (tether.exe)
+Nuitka flags: --onefile --enable-plugin=tk-inter
+              --include-data-dir=<spacy_model>=en_core_web_sm
+              --include-data-file=wordlist.txt=wordlist.txt
+              --include-package-data=pyphen
+Binary sizes: Linux ~410MB, macOS ~73MB, Windows ~91MB (spaCy is large)
+Release: softprops/action-gh-release@v2 auto-attaches binaries to GitHub Release
+
+RELEASE CHECKLIST (important — learned the hard way)
+-----------------------------------------------------
+Before tagging any release, THREE things must match:
+  1. VERSION = "X.Y.Z"          (near top of tether.py)
+  2. self.root.title("TETHER  vX.Y.Z")   (in __init__)
+  3. git tag -a vX.Y.Z          (the actual tag)
+All three must be identical or the update notifier will falsely trigger.
+
+KNOWN HISTORY / GOTCHAS
+------------------------
+- App was previously called "Constrained" — renamed to Tether at v0.2.3+
+- Local project folder is ~/Projects/typing/ (not ~/Projects/tether/)
+- GitHub repo is GrowlingHuel/tether
+- build.yml has been rewritten from scratch several times due to download
+  rename issues (browser saves as "build (1).yml") — always edit build.yml
+  directly on GitHub web editor, never via download
+- macos-13 runner is retired — always use macos-latest
+- Linux and macOS both output .bin by default — must use
+  --output-filename=${{ matrix.binary_path }} to avoid naming collision
+- spaCy model must be explicitly included via --include-data-dir or the
+  binary ships without linguistic features
+- pyphen must be included via --include-package-data=pyphen or Save crashes
+  in the binary (textstat uses pyphen internally)
+- textstat calls wrapped in try/except for Nuitka compatibility
+
+DEVELOPER PREFERENCES
+---------------------
+- Single Python file where possible
+- Minimal dependencies
+- Simplest thing that works
+- No frameworks unless they earn their place
+- Iterative: get something working fast, then refine
+- Comfortable with: Python, tkinter, GitHub Actions, Nuitka, git CLI
+
+ROADMAP (informal)
+------------------
+v0.4+  — layout fixes, screen size issues, UX refinements
+Future — README expansion with download links and screenshots
+Future — consider web version (Phoenix LiveView on Fly.io) for broader reach

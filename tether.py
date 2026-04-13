@@ -31,6 +31,7 @@ APP_DIR           = os.path.join(os.path.expanduser("~"), ".tether")
 HISTORY_FILE      = os.path.join(APP_DIR, "history.json")
 PRESETS_FILE      = os.path.join(APP_DIR, "presets.json")
 ONBOARDING_FILE   = os.path.join(APP_DIR, "seen_onboarding")
+SCORES_FILE       = os.path.join(APP_DIR, "scores.json")
 
 
 def ensure_app_dir():
@@ -140,6 +141,15 @@ if os.path.exists(_wl_path):
     with open(_wl_path, encoding="utf-8") as _f:
         WORDLIST = {line.strip().lower() for line in _f if line.strip()}
 
+WORD_RARITY: dict = {}
+_wr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "word_rarity.json")
+if os.path.exists(_wr_path):
+    try:
+        with open(_wr_path, encoding="utf-8") as _f:
+            WORD_RARITY = json.load(_f)
+    except Exception:
+        pass
+
 LEMMA_CACHE: dict = {}
 
 FUNCTION_WORDS = {
@@ -171,7 +181,10 @@ GREEN  = "#10b981"
 BLUE   = "#3b82f6"
 AMBER  = "#f59e0b"
 
-SERIF_SM = ("Georgia", 9)
+SERIF_SM  = ("Georgia", 9)
+GAME_BG   = "#0c0b14"
+GAME_BG2  = "#100f1c"
+GAME_ACC  = "#7c3aed"
 
 # ═══════════════════════════════════════════════════════════════════
 # DATA
@@ -234,6 +247,188 @@ BUILTIN_PRESETS = [
          {"type":"wordGoal","target":300},
          {"type":"timeLimit","seconds":900}
      ], "builtin":True},
+]
+
+_AC = {"type": "alphaCycle", "skipX": False, "xOptional": True}
+
+GAME_CHALLENGES = [
+    {"id":"first-steps","name":"First Steps",
+     "requires":None,
+     "description":"Write 50 real dictionary words. A gentle warm-up.",
+     "constraints":[{"type":"dictCheck"}],
+     "goal":{"type":"word_count","target":50},
+     "time_limit_seconds":180,"difficulty_multiplier":1.0,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":60,"score_min":160}}},
+    {"id":"four-letter-sprint","name":"Four-Letter Sprint",
+     "requires":None,
+     "description":"Write 150 words using only 4-letter words. You have 5 minutes.",
+     "constraints":[{"type":"wordLength","exact":4}],
+     "goal":{"type":"word_count","target":150},
+     "time_limit_seconds":300,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":800}}},
+    {"id":"threes-company","name":"Three's Company",
+     "requires":None,
+     "description":"Write 100 words — every word exactly 3 letters. You have 5 minutes.",
+     "constraints":[{"type":"wordLength","exact":3}],
+     "goal":{"type":"word_count","target":100},
+     "time_limit_seconds":300,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":420}}},
+    {"id":"five-alive","name":"Five Alive",
+     "requires":None,
+     "description":"Write 120 words of exactly 5 letters each. Six minutes.",
+     "constraints":[{"type":"wordLength","exact":5}],
+     "goal":{"type":"word_count","target":120},
+     "time_limit_seconds":360,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":900}}},
+    {"id":"alphabet-run","name":"Alphabet Run",
+     "requires":None,
+     "description":"Write one full A-to-Z alphabet cycle (26 words). Three minutes.",
+     "constraints":[_AC],
+     "goal":{"type":"word_count","target":26},
+     "time_limit_seconds":180,"difficulty_multiplier":2.0,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":1.00,"time_remaining_min":60,"score_min":220}}},
+    {"id":"double-alphabet","name":"Double Alphabet",
+     "requires":"alphabet-run",
+     "description":"Two full A-to-Z cycles (52 words). Five minutes.",
+     "constraints":[_AC],
+     "goal":{"type":"word_count","target":52},
+     "time_limit_seconds":300,"difficulty_multiplier":2.0,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":1.00,"time_remaining_min":90,"score_min":500}}},
+    {"id":"no-repeats","name":"No Repeats",
+     "requires":None,
+     "description":"Write 200 words without reusing any root word. Eight minutes.",
+     "constraints":[{"type":"noRepeat","contentOnly":True}],
+     "goal":{"type":"word_count","target":200},
+     "time_limit_seconds":480,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":60},
+         "three":{"compliance_min":0.95,"time_remaining_min":120,"score_min":1200}}},
+    {"id":"pangram-dash","name":"Pangram Dash",
+     "requires":None,
+     "description":"Use every letter of the alphabet within 50 words. Write 100 total. Four minutes.",
+     "constraints":[{"type":"pangram","withinWords":50}],
+     "goal":{"type":"word_count","target":100},
+     "time_limit_seconds":240,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":60,"score_min":500}}},
+    {"id":"letter-budget","name":"Letter Budget",
+     "requires":None,
+     "description":"Each starting letter may only begin 3 words. Write 150. Six minutes.",
+     "constraints":[{"type":"startLetterMax","max":3}],
+     "goal":{"type":"word_count","target":150},
+     "time_limit_seconds":360,"difficulty_multiplier":1.25,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":550}}},
+    {"id":"short-and-sweet","name":"Short and Sweet",
+     "requires":"threes-company",
+     "description":"Write 80 real 3-letter words. Four minutes.",
+     "constraints":[{"type":"wordLength","exact":3},{"type":"dictCheck"}],
+     "goal":{"type":"word_count","target":80},
+     "time_limit_seconds":240,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":60,"score_min":360}}},
+    {"id":"verbose","name":"Verbose",
+     "requires":"five-alive",
+     "description":"Write 60 words of exactly 7 letters each. Five minutes.",
+     "constraints":[{"type":"wordLength","exact":7}],
+     "goal":{"type":"word_count","target":60},
+     "time_limit_seconds":300,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":600}}},
+    {"id":"marathon","name":"Marathon",
+     "requires":"no-repeats",
+     "description":"Write 300 unique real words (no root repeats). Twelve minutes.",
+     "constraints":[{"type":"noRepeat","contentOnly":True},{"type":"dictCheck"}],
+     "goal":{"type":"word_count","target":300},
+     "time_limit_seconds":720,"difficulty_multiplier":1.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":60},
+         "three":{"compliance_min":0.95,"time_remaining_min":180,"score_min":2200}}},
+    {"id":"tight-alphabet","name":"Tight Alphabet",
+     "requires":"double-alphabet",
+     "description":"Two alphabet cycles — every word must be a real dictionary word. Four minutes.",
+     "constraints":[_AC, {"type":"dictCheck"}],
+     "goal":{"type":"word_count","target":52},
+     "time_limit_seconds":240,"difficulty_multiplier":2.0,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":1.00,"time_remaining_min":60,"score_min":500}}},
+    {"id":"gauntlet-lite","name":"Gauntlet Lite",
+     "requires":"four-letter-sprint",
+     "description":"100 unique real 4-letter words. Six minutes.",
+     "constraints":[{"type":"wordLength","exact":4},
+                    {"type":"noRepeat","contentOnly":True},
+                    {"type":"dictCheck"}],
+     "goal":{"type":"word_count","target":100},
+     "time_limit_seconds":360,"difficulty_multiplier":2.25,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":30},
+         "three":{"compliance_min":0.95,"time_remaining_min":90,"score_min":800}}},
+    {"id":"the-gauntlet","name":"The Gauntlet",
+     "requires":"gauntlet-lite",
+     "description":"150 words: 4 letters, alphabet cycle, no repeats. Ten minutes.",
+     "constraints":[{"type":"wordLength","exact":4},
+                    _AC,
+                    {"type":"noRepeat","contentOnly":True}],
+     "goal":{"type":"word_count","target":150},
+     "time_limit_seconds":600,"difficulty_multiplier":4.5,
+     "star_thresholds":{
+         "one":  {"compliance_min":0.70},
+         "two":  {"compliance_min":0.85,"time_remaining_min":60},
+         "three":{"compliance_min":0.95,"time_remaining_min":180,"score_min":2500}}},
+]
+
+GAME_SA_PRESETS = [
+    {"id":"sa-blitz","name":"Blitz",
+     "desc":"4-letter words, 2 minutes. Fast and focused.",
+     "constraints":[{"type":"wordLength","exact":4}],
+     "default_duration":120},
+    {"id":"sa-endurance","name":"Endurance",
+     "desc":"No repeats + real words. How far can you go?",
+     "constraints":[{"type":"noRepeat","contentOnly":True},{"type":"dictCheck"}],
+     "default_duration":None},
+    {"id":"sa-alpha-grind","name":"Alphabet Grind",
+     "desc":"Alphabet cycle + real words, endless.",
+     "constraints":[_AC, {"type":"dictCheck"}],
+     "default_duration":None},
+    {"id":"sa-word-hoarder","name":"Word Hoarder",
+     "desc":"5-letter words + pangram in 100. 5 minutes.",
+     "constraints":[{"type":"wordLength","exact":5},{"type":"pangram","withinWords":100}],
+     "default_duration":300},
+    {"id":"sa-freeform","name":"Free Attack",
+     "desc":"No constraints — pure scoring on vocabulary richness.",
+     "constraints":[],
+     "default_duration":300},
 ]
 
 # ═══════════════════════════════════════════════════════════════════
@@ -498,6 +693,160 @@ def fmt_time(s: int) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# GAME ENGINE
+# ═══════════════════════════════════════════════════════════════════
+
+_CONSTRAINT_DIFF = {
+    'dictCheck': 1.0, 'wordLength': 1.5, 'alphaCycle': 2.0,
+    'noRepeat': 1.5, 'startLetterMax': 1.25, 'pangram': 1.5,
+}
+
+def compute_difficulty_mult(constraints: list) -> float:
+    active = [c for c in constraints
+              if c['type'] not in ('wordGoal', 'timeLimit')]
+    if not active:
+        return 1.0
+    mult = 1.0
+    for c in active:
+        mult *= _CONSTRAINT_DIFF.get(c['type'], 1.0)
+    return min(5.0, round(mult, 2))
+
+
+class GameScorer:
+    _STREAK_TIERS = [(100, 4.0), (50, 3.0), (25, 2.0), (10, 1.5), (0, 1.0)]
+
+    def __init__(self, difficulty: str, constraints: list,
+                 preset_mult: float = None):
+        self.difficulty  = difficulty
+        self.diff_mult   = (preset_mult if preset_mult is not None
+                            else compute_difficulty_mult(constraints))
+        self.streak      = 0
+        self.peak_streak = 0
+        self.peak_mult   = 1.0
+        self.score       = 0.0
+        self.total_words = 0
+        self.compliant_words = 0
+        self._consec_viols   = 0
+        self._last_viol_time = 0.0
+
+    def streak_mult(self) -> float:
+        for threshold, m in self._STREAK_TIERS:
+            if self.streak >= threshold:
+                return m
+        return 1.0
+
+    def score_word(self, word: str, compliant: bool,
+                   now: float = None) -> float:
+        if now is None:
+            now = time.monotonic()
+        self.total_words += 1
+        if compliant:
+            self.streak      += 1
+            self.compliant_words += 1
+            self.peak_streak  = max(self.peak_streak, self.streak)
+            self.peak_mult    = max(self.peak_mult, self.streak_mult())
+            self._consec_viols = 0
+            base   = len(clean_word(word))
+            pts    = base * self.diff_mult * self.streak_mult() * \
+                     WORD_RARITY.get(word.lower(), 1.0)
+            self.score += pts
+            return pts
+        else:
+            self.streak = 0
+            if now - self._last_viol_time > 30:
+                self._consec_viols = 0
+            self._consec_viols   += 1
+            self._last_viol_time  = now
+            deduction = 0.0
+            if self.difficulty == 'medium':
+                deduction = 5.0
+            elif self.difficulty == 'hard':
+                deduction = min(5.0 * (2 ** (self._consec_viols - 1)), 40.0)
+            self.score = max(0.0, self.score - deduction)
+            return -deduction
+
+    @property
+    def compliance(self) -> float:
+        return (self.compliant_words / self.total_words
+                if self.total_words else 1.0)
+
+    def int_score(self) -> int:
+        return int(self.score)
+
+
+def load_scores() -> dict:
+    ensure_app_dir()
+    if not os.path.exists(SCORES_FILE):
+        return {"challenges": {}, "score_attack": {}}
+    try:
+        with open(SCORES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"challenges": {}, "score_attack": {}}
+
+
+def save_scores(data: dict):
+    ensure_app_dir()
+    try:
+        with open(SCORES_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Warning: could not save scores: {e}")
+
+
+def challenge_has_star(cid: str) -> bool:
+    """Return True if challenge has at least 1 ★ completion (any difficulty)."""
+    data = load_scores()
+    diffs = data.get("challenges", {}).get(cid, {})
+    for entries in diffs.values():
+        for e in entries:
+            if e.get('stars', 0) >= 1:
+                return True
+    return False
+
+
+def get_unlocked_challenges() -> set:
+    """Return set of challenge IDs that are currently accessible."""
+    unlocked = set()
+    for ch in GAME_CHALLENGES:
+        req = ch.get('requires')
+        if req is None or challenge_has_star(req):
+            unlocked.add(ch['id'])
+    return unlocked
+
+
+def append_score(data: dict, category: str, key: str,
+                 difficulty: str, entry: dict):
+    """Append entry to scores data, capping at 100 per bucket."""
+    data.setdefault(category, {}).setdefault(key, {}).setdefault(difficulty, [])
+    bucket = data[category][key][difficulty]
+    bucket.append(entry)
+    bucket.sort(key=lambda x: x['score'], reverse=True)
+    if len(bucket) > 100:
+        del bucket[100:]
+
+
+def eval_stars(ch: dict, compliance: float, time_remaining: int,
+               score: int) -> int:
+    th = ch.get('star_thresholds', {})
+    stars = 0
+    if compliance >= th.get('one', {}).get('compliance_min', 1.0):
+        stars = 1
+    two = th.get('two', {})
+    if (stars >= 1
+            and compliance >= two.get('compliance_min', 1.0)
+            and time_remaining >= two.get('time_remaining_min', 0)):
+        stars = 2
+    three = th.get('three', {})
+    if (stars >= 2
+            and compliance >= three.get('compliance_min', 1.0)
+            and time_remaining >= three.get('time_remaining_min', 0)
+            and score >= three.get('score_min', 0)):
+        stars = 3
+    return stars
+
+
+# ═══════════════════════════════════════════════════════════════════
 # APPLICATION
 # ═══════════════════════════════════════════════════════════════════
 
@@ -524,6 +873,25 @@ class ConstrainedApp:
         self.timer_running      = False
         self.analysis: dict     = self._empty_analysis()
         self.deep: dict         = {}
+
+        # Game mode state
+        self._game_mode          = "write"      # "write" | "game"
+        self._game_submode       = "challenge"  # "challenge" | "scoreattack"
+        self._game_difficulty    = "medium"     # "easy" | "medium" | "hard"
+        self._game_state         = "idle"       # "idle"|"countdown"|"active"|"done"
+        self._game_scorer: GameScorer | None = None
+        self._game_challenge     = None         # selected challenge dict
+        self._game_sa_preset     = None         # selected SA preset dict
+        self._game_sa_timed      = True         # timed vs endless (SA)
+        self._game_sa_duration   = 300          # seconds (SA timed)
+        self._game_start_mono    = 0.0
+        self._game_elapsed       = 0            # integer seconds
+        self._game_time_limit    = None         # int seconds or None
+        self._game_last_wc       = 0            # word count at last scoring
+        self._game_timer_job     = None
+        self._game_feedback_job  = None   # pending root.after for feedback clear
+        self._game_streak_prev   = 0      # track prev streak to detect resets
+        self._game_unlocked      = get_unlocked_challenges()
 
         # Builder vars
         self.b = {
@@ -623,8 +991,27 @@ class ConstrainedApp:
         sb.pack(side=tk.LEFT, fill=tk.Y)
         sb.pack_propagate(False)
 
-        self._sb_canvas = tk.Canvas(sb, bg=BG2, highlightthickness=0)
-        sb_scroll = tk.Scrollbar(sb, orient=tk.VERTICAL,
+        # Write / Game mode toggle
+        _tog = tk.Frame(sb, bg=BG2)
+        _tog.pack(fill=tk.X, padx=6, pady=(6, 2))
+        self._wb = tk.Button(_tog, text="WRITE", bg=ACCENT, fg="#000",
+            relief=tk.FLAT, font=("Courier New", 8, "bold"), pady=3, bd=0,
+            cursor="hand2", activeforeground="#000", activebackground=ACCENT,
+            command=lambda: self._game_toggle_mode("write"))
+        self._wb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
+        self._gb = tk.Button(_tog, text="GAME", bg=BG3, fg=DIM,
+            relief=tk.FLAT, font=("Courier New", 8, "bold"), pady=3, bd=0,
+            cursor="hand2", activeforeground=GAME_ACC, activebackground=BG3,
+            command=lambda: self._game_toggle_mode("game"))
+        self._gb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
+
+        # Write mode sidebar (scrollable canvas)
+        self._write_sb_frame = tk.Frame(sb, bg=BG2)
+        self._write_sb_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._sb_canvas = tk.Canvas(self._write_sb_frame, bg=BG2,
+                                    highlightthickness=0)
+        sb_scroll = tk.Scrollbar(self._write_sb_frame, orient=tk.VERTICAL,
                                   command=self._sb_canvas.yview,
                                   bg=BG2, troughcolor=BG2)
         self._sb_canvas.configure(yscrollcommand=sb_scroll.set)
@@ -645,7 +1032,11 @@ class ConstrainedApp:
             self._sb_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         self._sb_canvas.bind_all("<MouseWheel>", _mw)
 
+        # Game mode sidebar (initially hidden, built after _build_sidebar_contents)
+        self._game_sb_frame = tk.Frame(sb, bg=GAME_BG)
+
         self._build_sidebar_contents()
+        self._build_game_sidebar()
 
         main = tk.Frame(self.editor_frame, bg=BG)
         main.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -784,6 +1175,997 @@ class ConstrainedApp:
 
         self._sb_canvas.configure(
             scrollregion=self._sb_canvas.bbox("all"))
+
+    # ── GAME SIDEBAR ──────────────────────────────────────────────
+
+    def _build_game_sidebar(self):
+        """Build the game panel inside _game_sb_frame."""
+        sb = self._game_sb_frame
+
+        def glabel(parent, text, fg=None, font=None):
+            kw = dict(fg=fg or DIM2, bg=GAME_BG,
+                      font=font or ("Courier New", 8))
+            tk.Label(parent, text=text, **kw).pack(
+                anchor=tk.W, padx=10, pady=(5, 1))
+
+        def gdiv():
+            tk.Frame(sb, bg="#1e1a2e", height=1).pack(
+                fill=tk.X, padx=6, pady=4)
+
+        # ── Sub-mode toggle ──────────────────────────────────────
+        sm = tk.Frame(sb, bg=GAME_BG)
+        sm.pack(fill=tk.X, padx=6, pady=(6, 2))
+        self._ch_btn = tk.Button(sm, text="CHALLENGE",
+            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
+            font=("Courier New", 8, "bold"), pady=3, bd=0, cursor="hand2",
+            activeforeground="#fff", activebackground=GAME_ACC,
+            command=lambda: self._game_set_submode("challenge"))
+        self._ch_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,1))
+        self._sa_btn = tk.Button(sm, text="SCORE ATTACK",
+            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
+            font=("Courier New", 8, "bold"), pady=3, bd=0, cursor="hand2",
+            activeforeground=GAME_ACC, activebackground=GAME_BG2,
+            command=lambda: self._game_set_submode("scoreattack"))
+        self._sa_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1,0))
+
+        # ── Difficulty ───────────────────────────────────────────
+        gdiv()
+        glabel(sb, "DIFFICULTY")
+        diff_row = tk.Frame(sb, bg=GAME_BG)
+        diff_row.pack(fill=tk.X, padx=6, pady=(2, 2))
+        self._diff_btns = {}
+        for d, label in [("easy","Easy"),("medium","Med"),("hard","Hard")]:
+            b = tk.Button(diff_row, text=label,
+                bg=GAME_ACC if d == "medium" else GAME_BG2,
+                fg="#fff" if d == "medium" else DIM,
+                relief=tk.FLAT, font=("Courier New", 8), pady=2, bd=0,
+                cursor="hand2",
+                command=lambda d=d: self._game_set_difficulty(d))
+            b.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+            self._diff_btns[d] = b
+
+        # ── Challenge list ────────────────────────────────────────
+        self._ch_list_frame = tk.Frame(sb, bg=GAME_BG)
+        self._ch_list_frame.pack(fill=tk.X)
+        gdiv()
+        glabel(self._ch_list_frame, "CHALLENGES")
+        self._ch_rows = {}
+        self._ch_sub_rows = {}   # sub-label for locked prerequisite hint
+        for ch in GAME_CHALLENGES:
+            locked = ch['id'] not in self._game_unlocked
+            req_name = ""
+            if locked and ch.get('requires'):
+                req_ch = next((c for c in GAME_CHALLENGES if c['id'] == ch['requires']), None)
+                req_name = req_ch['name'] if req_ch else ch['requires']
+            row = tk.Frame(self._ch_list_frame, bg=GAME_BG,
+                           cursor="" if locked else "hand2")
+            row.pack(fill=tk.X)
+            dot = tk.Label(row, text="🔒" if locked else "▪",
+                           fg=DIM2 if locked else GAME_ACC, bg=GAME_BG,
+                           font=("Courier New", 8), width=2)
+            dot.pack(side=tk.LEFT, padx=(8, 0), anchor=tk.N, pady=4)
+            name_col = tk.Frame(row, bg=GAME_BG)
+            name_col.pack(side=tk.LEFT, padx=4, pady=2, fill=tk.X, expand=True)
+            lbl = tk.Label(name_col, text=ch['name'],
+                           fg=DIM2 if locked else DIM, bg=GAME_BG,
+                           font=SERIF_SM, anchor=tk.W,
+                           cursor="" if locked else "hand2")
+            lbl.pack(anchor=tk.W)
+            sub_lbl = None
+            if locked and req_name:
+                sub_lbl = tk.Label(name_col, text=f"beat {req_name} first",
+                                   fg=DIM2, bg=GAME_BG,
+                                   font=("Courier New", 7), anchor=tk.W)
+                sub_lbl.pack(anchor=tk.W)
+            if not locked:
+                for w in (row, dot, name_col, lbl):
+                    w.bind("<Button-1>",
+                        lambda e, c=ch: self._game_select_challenge(c))
+            self._ch_rows[ch['id']] = (row, lbl, dot)
+            self._ch_sub_rows[ch['id']] = sub_lbl
+
+        # ── Score Attack preset list ──────────────────────────────
+        self._sa_list_frame = tk.Frame(sb, bg=GAME_BG)
+        glabel(self._sa_list_frame, "PRESET")
+        self._sa_rows = {}
+        for p in GAME_SA_PRESETS:
+            row = tk.Frame(self._sa_list_frame, bg=GAME_BG, cursor="hand2")
+            row.pack(fill=tk.X)
+            dot = tk.Label(row, text="▪", fg=BLUE, bg=GAME_BG,
+                           font=("Courier New", 8), width=2)
+            dot.pack(side=tk.LEFT, padx=(8, 0))
+            lbl = tk.Label(row, text=p['name'], fg=DIM, bg=GAME_BG,
+                           font=SERIF_SM, anchor=tk.W, cursor="hand2")
+            lbl.pack(side=tk.LEFT, padx=4, pady=4, fill=tk.X, expand=True)
+            for w in (row, dot, lbl):
+                w.bind("<Button-1>",
+                    lambda e, pr=p: self._game_select_sa_preset(pr))
+            self._sa_rows[p['id']] = (row, lbl, dot)
+
+        # SA duration selector (inside sa_list_frame)
+        self._sa_dur_frame = tk.Frame(self._sa_list_frame, bg=GAME_BG)
+        self._sa_dur_frame.pack(fill=tk.X, padx=8, pady=(4, 2))
+        glabel(self._sa_dur_frame, "DURATION")
+        dur_row = tk.Frame(self._sa_dur_frame, bg=GAME_BG)
+        dur_row.pack(fill=tk.X)
+        self._sa_dur_btns = {}
+        for secs, label in [(120,"2m"),(300,"5m"),(600,"10m"),(0,"∞")]:
+            b = tk.Button(dur_row, text=label,
+                bg=GAME_ACC if secs == 300 else GAME_BG2,
+                fg="#fff" if secs == 300 else DIM,
+                relief=tk.FLAT, font=("Courier New", 8), pady=2, bd=0,
+                cursor="hand2",
+                command=lambda s=secs: self._game_set_duration(s))
+            b.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+            self._sa_dur_btns[secs] = b
+
+        # ── Challenge info panel (shown when a challenge is selected) ────
+        self._game_ch_info_frame = tk.Frame(sb, bg=GAME_BG)
+        # Back button — returns to the challenge list
+        tk.Button(self._game_ch_info_frame, text="← Back",
+            bg=GAME_BG, fg=DIM, relief=tk.FLAT,
+            font=("Courier New", 8), pady=3, bd=0, cursor="hand2",
+            activeforeground=GAME_ACC, activebackground=GAME_BG,
+            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4,0))
+        self._ch_info_name_var = tk.StringVar(value="")
+        tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_name_var,
+            fg="#fff", bg=GAME_BG, font=("Courier New", 11, "bold"),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,2))
+        self._ch_info_desc_var = tk.StringVar(value="")
+        tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_desc_var,
+            fg=DIM, bg=GAME_BG, font=("Courier New", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(0,4))
+        tk.Frame(self._game_ch_info_frame, bg="#1e1a2e", height=1).pack(
+            fill=tk.X, padx=6, pady=2)
+        self._ch_info_constr_var = tk.StringVar(value="")
+        tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_constr_var,
+            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,0))
+        self._ch_info_goal_var = tk.StringVar(value="")
+        tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_goal_var,
+            fg=DIM2, bg=GAME_BG, font=("Courier New", 8)).pack(
+            anchor=tk.W, padx=10, pady=(2,4))
+        self._game_ch_start_btn = tk.Button(self._game_ch_info_frame,
+            text="▶  START CHALLENGE",
+            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
+            font=("Courier New", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#fff",
+            activebackground="#6d28d9",
+            command=self._game_start_countdown)
+        self._game_ch_start_btn.pack(fill=tk.X, padx=8, pady=(4,8))
+
+        # ── Start button (Score Attack) ───────────────────────────
+        self._game_pre_start_div = tk.Frame(sb, bg="#1e1a2e", height=1)
+        # not packed — _game_lb_div is the layout anchor
+        self._game_start_btn = tk.Button(sb, text="▶  START",
+            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
+            font=("Courier New", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#fff",
+            activebackground="#6d28d9",
+            command=self._game_start_countdown)
+        self._game_start_btn.pack(fill=tk.X, padx=8, pady=4)
+
+        # ── Live stats (hidden until active) ─────────────────────
+        self._game_live_frame = tk.Frame(sb, bg=GAME_BG)
+
+        gdiv2 = lambda: tk.Frame(self._game_live_frame,
+            bg="#1e1a2e", height=1).pack(fill=tk.X, padx=6, pady=3)
+
+        # 1. Challenge/preset name + constraint summary
+        self._game_live_mode_var = tk.StringVar(value="")
+        tk.Label(self._game_live_frame, textvariable=self._game_live_mode_var,
+            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 9, "bold"),
+            anchor=tk.CENTER).pack(fill=tk.X, padx=10, pady=(6,0))
+        self._game_live_constr_var = tk.StringVar(value="")
+        tk.Label(self._game_live_frame, textvariable=self._game_live_constr_var,
+            fg=DIM2, bg=GAME_BG, font=("Courier New", 7),
+            wraplength=190, justify=tk.CENTER, anchor=tk.CENTER).pack(
+            fill=tk.X, padx=10, pady=(0,2))
+        gdiv2()
+
+        # 2. SCORE — huge and centered
+        score_section = tk.Frame(self._game_live_frame, bg=GAME_BG)
+        score_section.pack(fill=tk.X, pady=(4, 0))
+        self._game_score_var = tk.StringVar(value="0")
+        self._game_score_lbl = tk.Label(score_section,
+            textvariable=self._game_score_var,
+            fg="#fff", bg=GAME_BG, font=("Courier New", 36, "bold"),
+            anchor=tk.CENTER)
+        self._game_score_lbl.pack(fill=tk.X)
+        tk.Label(score_section, text="pts", fg=GAME_ACC, bg=GAME_BG,
+                 font=("Courier New", 9), anchor=tk.CENTER).pack()
+
+        # 3. Per-word feedback label
+        self._game_feedback_var = tk.StringVar(value="")
+        self._game_feedback_lbl = tk.Label(self._game_live_frame,
+            textvariable=self._game_feedback_var,
+            fg=GREEN, bg=GAME_BG, font=("Courier New", 11, "bold"),
+            anchor=tk.CENTER)
+        self._game_feedback_lbl.pack(fill=tk.X, padx=10, pady=(2, 0))
+
+        gdiv2()
+
+        # 4. Streak + multiplier — combined, large, emotionally central
+        self._game_streak_lbl = tk.Label(self._game_live_frame,
+            text="streak: 0", fg=DIM, bg=GAME_BG,
+            font=("Courier New", 16, "bold"), anchor=tk.CENTER)
+        self._game_streak_lbl.pack(fill=tk.X, padx=10, pady=(4, 4))
+
+        gdiv2()
+
+        # 5. Timer
+        self._game_timer_var = tk.StringVar(value="0:00")
+        self._game_timer_lbl = tk.Label(self._game_live_frame,
+            textvariable=self._game_timer_var,
+            fg=DIM, bg=GAME_BG, font=("Courier New", 22, "bold"),
+            anchor=tk.CENTER)
+        self._game_timer_lbl.pack(fill=tk.X, padx=10, pady=(2,0))
+
+        # 6. Word progress (challenge word goal)
+        self._game_prog_frame = tk.Frame(self._game_live_frame, bg=GAME_BG)
+        prog_inner = tk.Frame(self._game_prog_frame, bg=GAME_BG)
+        prog_inner.pack(fill=tk.X, padx=10)
+        tk.Label(prog_inner, text="words", fg=DIM2, bg=GAME_BG,
+                 font=("Courier New", 8)).pack(side=tk.LEFT)
+        self._game_prog_var = tk.StringVar(value="")
+        tk.Label(prog_inner, textvariable=self._game_prog_var,
+            fg=DIM, bg=GAME_BG, font=("Courier New", 11, "bold")).pack(side=tk.RIGHT)
+        self._game_prog_bar = tk.Canvas(self._game_prog_frame,
+            bg="#1e1a2e", height=3, highlightthickness=0)
+        self._game_prog_bar.pack(fill=tk.X, padx=10, pady=(1,0))
+
+        gdiv2()
+
+        # 7. Stop button
+        self._game_stop_btn = tk.Button(self._game_live_frame,
+            text="■  STOP", bg="#3a1a1a", fg=RED,
+            relief=tk.FLAT, font=("Courier New", 9, "bold"), pady=4, bd=0,
+            cursor="hand2", activeforeground=RED, activebackground="#4a1a1a",
+            command=self._game_stop_session)
+        self._game_stop_btn.pack(fill=tk.X, padx=8, pady=(0, 4))
+
+        # ── Results panel (shown after a session ends) ────────────
+        self._game_results_frame = tk.Frame(sb, bg=GAME_BG)
+
+        self._game_res_title_var = tk.StringVar(value="")
+        tk.Label(self._game_results_frame, textvariable=self._game_res_title_var,
+            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8, "bold"),
+            anchor=tk.CENTER).pack(fill=tk.X, padx=10, pady=(8, 0))
+
+        self._game_res_stars_var = tk.StringVar(value="")
+        self._game_res_stars_lbl = tk.Label(self._game_results_frame,
+            textvariable=self._game_res_stars_var,
+            fg=AMBER, bg=GAME_BG, font=("Courier New", 28))
+        self._game_res_stars_lbl.pack(pady=(4, 0))
+
+        self._game_res_score_var = tk.StringVar(value="0")
+        tk.Label(self._game_results_frame, textvariable=self._game_res_score_var,
+            fg="#fff", bg=GAME_BG,
+            font=("Courier New", 36, "bold")).pack()
+        tk.Label(self._game_results_frame, text="pts",
+            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8)).pack()
+
+        # High score callout
+        self._game_res_highscore_var = tk.StringVar(value="")
+        self._game_res_highscore_lbl = tk.Label(self._game_results_frame,
+            textvariable=self._game_res_highscore_var,
+            fg=AMBER, bg=GAME_BG, font=("Courier New", 9, "bold"),
+            anchor=tk.CENTER)
+        # (packed conditionally in _game_show_results)
+
+        tk.Frame(self._game_results_frame, bg="#1e1a2e", height=1).pack(
+            fill=tk.X, padx=6, pady=6)
+
+        res_stats = tk.Frame(self._game_results_frame, bg=GAME_BG)
+        res_stats.pack(fill=tk.X, padx=10)
+        self._game_res_stat_vars = {}
+        for key, label in [("time","time"),("words","words"),
+                            ("comply","comply"),("streak","streak"),
+                            ("mult","best ×")]:
+            row = tk.Frame(res_stats, bg=GAME_BG)
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=label, fg=DIM2, bg=GAME_BG,
+                font=("Courier New", 8)).pack(side=tk.LEFT)
+            var = tk.StringVar(value="—")
+            self._game_res_stat_vars[key] = var
+            tk.Label(row, textvariable=var, fg=DIM, bg=GAME_BG,
+                font=("Courier New", 10)).pack(side=tk.RIGHT)
+
+        tk.Frame(self._game_results_frame, bg="#1e1a2e", height=1).pack(
+            fill=tk.X, padx=6, pady=6)
+
+        res_btns = tk.Frame(self._game_results_frame, bg=GAME_BG)
+        res_btns.pack(fill=tk.X, padx=8, pady=(0, 4))
+        self._game_res_retry_btn = tk.Button(res_btns, text="↻ Retry",
+            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
+            font=("Courier New", 8, "bold"), pady=4, bd=0, cursor="hand2",
+            activeforeground="#fff", activebackground="#6d28d9")
+        self._game_res_retry_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,1))
+        self._game_res_next_btn = tk.Button(res_btns, text="→ Next",
+            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
+            font=("Courier New", 8), pady=4, bd=0, cursor="hand2",
+            activeforeground=GAME_ACC, activebackground=GAME_BG2)
+        self._game_res_next_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+        self._game_res_back_btn = tk.Button(res_btns, text="← List",
+            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
+            font=("Courier New", 8), pady=4, bd=0, cursor="hand2",
+            activeforeground=GAME_ACC, activebackground=GAME_BG2)
+        self._game_res_back_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1,0))
+
+        # Unlock notification
+        self._game_res_unlock_var = tk.StringVar(value="")
+        self._game_res_unlock_lbl = tk.Label(self._game_results_frame,
+            textvariable=self._game_res_unlock_var,
+            fg=GREEN, bg=GAME_BG, font=("Courier New", 9, "bold"),
+            wraplength=200, justify=tk.CENTER, anchor=tk.CENTER)
+        # (packed conditionally in _game_show_results)
+
+        # ── Leaderboard button ────────────────────────────────────
+        self._game_lb_div = tk.Frame(sb, bg="#1e1a2e", height=1)
+        self._game_lb_div.pack(fill=tk.X, padx=6, pady=4)
+        tk.Button(sb, text="📊  Scores", bg=GAME_BG2, fg=DIM,
+            relief=tk.FLAT, font=("Courier New", 8), pady=3, bd=0,
+            cursor="hand2", activeforeground=GAME_ACC,
+            activebackground=GAME_BG2,
+            command=self._game_show_leaderboard).pack(
+            fill=tk.X, padx=8, pady=(0, 6))
+
+        # Default state: challenge mode, list visible, SA start btn hidden
+        self._game_start_btn.pack_forget()
+
+    # ── GAME MODE LOGIC ───────────────────────────────────────────
+
+    def _game_toggle_mode(self, mode: str):
+        if mode == self._game_mode:
+            return
+        self._game_mode = mode
+        if mode == "game":
+            self._write_sb_frame.pack_forget()
+            self._game_sb_frame.pack(fill=tk.BOTH, expand=True)
+            self._wb.config(bg=BG3, fg=DIM,
+                activeforeground=DIM, activebackground=BG3)
+            self._gb.config(bg=GAME_ACC, fg="#fff",
+                activeforeground="#fff", activebackground=GAME_ACC)
+        else:
+            self._game_sb_frame.pack_forget()
+            self._write_sb_frame.pack(fill=tk.BOTH, expand=True)
+            self._wb.config(bg=ACCENT, fg="#000",
+                activeforeground="#000", activebackground=ACCENT)
+            self._gb.config(bg=BG3, fg=DIM,
+                activeforeground=GAME_ACC, activebackground=BG3)
+            if self._game_state == "active":
+                self._game_stop_session()
+
+    def _game_set_submode(self, mode: str):
+        self._game_submode = mode
+        if mode == "challenge":
+            self._ch_btn.config(bg=GAME_ACC, fg="#fff")
+            self._sa_btn.config(bg=GAME_BG2, fg=DIM)
+            self._sa_list_frame.pack_forget()
+            self._game_ch_info_frame.pack_forget()
+            self._game_results_frame.pack_forget()
+            self._ch_list_frame.pack(fill=tk.X)
+            self._game_start_btn.pack_forget()
+        else:
+            self._sa_btn.config(bg=GAME_ACC, fg="#fff")
+            self._ch_btn.config(bg=GAME_BG2, fg=DIM)
+            self._ch_list_frame.pack_forget()
+            self._game_ch_info_frame.pack_forget()
+            self._game_results_frame.pack_forget()
+            self._sa_list_frame.pack(fill=tk.X, padx=6)
+            if not self._game_start_btn.winfo_ismapped():
+                self._game_start_btn.pack(
+                    fill=tk.X, padx=8, pady=4,
+                    before=self._game_lb_div)
+            if not self._game_sa_preset and GAME_SA_PRESETS:
+                self._game_select_sa_preset(GAME_SA_PRESETS[0])
+
+    def _game_set_difficulty(self, d: str):
+        self._game_difficulty = d
+        for k, b in self._diff_btns.items():
+            b.config(bg=GAME_ACC if k == d else GAME_BG2,
+                     fg="#fff" if k == d else DIM)
+
+    def _game_set_duration(self, secs: int):
+        self._game_sa_duration = secs
+        self._game_sa_timed    = secs > 0
+        for k, b in self._sa_dur_btns.items():
+            b.config(bg=GAME_ACC if k == secs else GAME_BG2,
+                     fg="#fff" if k == secs else DIM)
+
+    def _game_select_challenge(self, ch: dict):
+        if ch['id'] not in self._game_unlocked:
+            return
+        self._game_challenge = ch
+        for cid, (row, lbl, dot) in self._ch_rows.items():
+            active = cid == ch['id']
+            row.config(bg="#161226" if active else GAME_BG)
+            lbl.config(bg="#161226" if active else GAME_BG,
+                       fg="#fff" if active else DIM)
+            dot.config(bg="#161226" if active else GAME_BG)
+        # Populate info panel
+        self._ch_info_name_var.set(ch['name'])
+        self._ch_info_desc_var.set(ch['description'])
+        self._ch_info_constr_var.set(constraints_summary(ch['constraints']))
+        goal = ch['goal']
+        if goal['type'] == 'word_count':
+            goal_str = f"{goal['target']} words"
+        elif goal['type'] == 'score_target':
+            goal_str = f"{goal['target']} pts"
+        else:
+            goal_str = "timed survival"
+        self._ch_info_goal_var.set(
+            f"goal: {goal_str}  ·  {fmt_time(ch['time_limit_seconds'])}")
+        self._game_ch_start_btn.config(
+            text="▶  START CHALLENGE", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+        # Hide list, show info panel in its place
+        self._ch_list_frame.pack_forget()
+        self._game_results_frame.pack_forget()
+        if not self._game_ch_info_frame.winfo_ismapped():
+            self._game_ch_info_frame.pack(
+                fill=tk.X, before=self._game_lb_div)
+        self._game_start_btn.pack_forget()
+
+    def _game_refresh_challenge_list(self):
+        """Rebuild challenge row lock states after unlocks."""
+        self._game_unlocked = get_unlocked_challenges()
+        for ch in GAME_CHALLENGES:
+            if ch['id'] not in self._ch_rows:
+                continue
+            row, lbl, dot = self._ch_rows[ch['id']]
+            sub_lbl = self._ch_sub_rows.get(ch['id'])
+            locked = ch['id'] not in self._game_unlocked
+            lbl.config(fg=DIM2 if locked else DIM,
+                       cursor="" if locked else "hand2")
+            dot.config(text="🔒" if locked else "▪",
+                       fg=DIM2 if locked else GAME_ACC)
+            row.config(cursor="" if locked else "hand2")
+            # Show/hide the sub-label (prereq hint)
+            if sub_lbl:
+                if locked:
+                    sub_lbl.pack(anchor=tk.W)
+                else:
+                    sub_lbl.pack_forget()
+            # Remove all button-1 bindings then re-add if unlocked
+            name_col = lbl.master
+            for w in (row, dot, name_col, lbl):
+                w.unbind("<Button-1>")
+            if not locked:
+                for w in (row, dot, name_col, lbl):
+                    w.bind("<Button-1>",
+                        lambda e, c=ch: self._game_select_challenge(c))
+
+    def _game_select_sa_preset(self, p: dict):
+        self._game_sa_preset = p
+        # Set default duration
+        dur = p.get('default_duration') or 0
+        self._game_set_duration(dur)
+        for pid, (row, lbl, dot) in self._sa_rows.items():
+            active = pid == p['id']
+            row.config(bg="#0d1626" if active else GAME_BG)
+            lbl.config(bg="#0d1626" if active else GAME_BG,
+                       fg="#fff" if active else DIM)
+            dot.config(bg="#0d1626" if active else GAME_BG)
+        self._game_start_btn.config(text=f"▶  {p['name'][:18]}")
+
+    def _game_start_countdown(self):
+        if self._game_state in ("countdown", "active"):
+            return
+        if self._game_submode == "challenge" and not self._game_challenge:
+            return
+        if self._game_submode == "scoreattack" and not self._game_sa_preset:
+            return
+        # Reset editor
+        self.text_widget.config(state=tk.NORMAL)
+        self.text_widget.delete("1.0", tk.END)
+        self.text_content    = ""
+        self.session_started = False
+        self.elapsed         = 0
+        self.analysis        = self._empty_analysis()
+        self._game_last_wc   = 0
+
+        self._game_state = "countdown"
+        self._game_show_live(False)
+        self._game_do_countdown(3)
+
+    def _game_do_countdown(self, n: int):
+        if self._game_state != "countdown":
+            return
+        btn = (self._game_ch_start_btn if self._game_submode == "challenge"
+               else self._game_start_btn)
+        if n > 0:
+            btn.config(text=str(n), bg="#3a1a0a", fg=AMBER, state=tk.DISABLED)
+            self.root.after(1000, lambda: self._game_do_countdown(n - 1))
+        else:
+            btn.config(text="WRITING...", bg="#0d1a0d", fg=GREEN, state=tk.DISABLED)
+            self._game_activate_session()
+
+    def _game_activate_session(self):
+        if self._game_submode == "challenge":
+            ch    = self._game_challenge
+            constr = ch['constraints']
+            mult   = ch['difficulty_multiplier']
+            self._game_time_limit = ch['time_limit_seconds']
+            self._game_live_mode_var.set(ch['name'].upper())
+        else:
+            p      = self._game_sa_preset
+            constr = p['constraints']
+            mult   = compute_difficulty_mult(constr)
+            self._game_time_limit = (self._game_sa_duration
+                                     if self._game_sa_timed else None)
+            self._game_live_mode_var.set(f"SCORE ATTACK — {p['name']}")
+        self._game_live_constr_var.set(constraints_summary(constr))
+
+        self._game_scorer    = GameScorer(self._game_difficulty, constr, mult)
+        self._game_state     = "active"
+        self._game_start_mono = time.monotonic()
+        self._game_elapsed   = 0
+        self._game_show_live(True)
+        self.text_widget.focus_set()
+        self._game_tick()
+
+    def _game_show_live(self, show: bool):
+        if show:
+            self._game_live_frame.pack(
+                fill=tk.X, before=self._game_lb_div)
+            self._game_ch_info_frame.pack_forget()
+            self._game_results_frame.pack_forget()
+            self._game_start_btn.pack_forget()
+        else:
+            self._game_live_frame.pack_forget()
+            # Restore the pre-session UI (countdown case: re-show info/start)
+            if self._game_submode == "challenge":
+                if self._game_challenge:
+                    if not self._game_ch_info_frame.winfo_ismapped():
+                        self._game_ch_info_frame.pack(
+                            fill=tk.X, before=self._game_lb_div)
+                    self._game_ch_start_btn.config(
+                        text="▶  START CHALLENGE",
+                        bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+            else:
+                if not self._game_start_btn.winfo_ismapped():
+                    self._game_start_btn.pack(
+                        fill=tk.X, padx=8, pady=4,
+                        before=self._game_lb_div)
+                if self._game_sa_preset:
+                    self._game_start_btn.config(
+                        text=f"▶  {self._game_sa_preset['name'][:18]}",
+                        bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+                else:
+                    self._game_start_btn.config(
+                        text="▶  START", bg=GAME_ACC, fg="#fff",
+                        state=tk.NORMAL)
+
+    def _game_tick(self):
+        if self._game_state != "active":
+            return
+        self._game_elapsed = int(time.monotonic() - self._game_start_mono)
+        self._game_update_display()
+
+        if self._game_time_limit:
+            remaining = self._game_time_limit - self._game_elapsed
+            if remaining <= 0:
+                self._game_end_session(timed_out=True)
+                return
+
+        self._game_timer_job = self.root.after(500, self._game_tick)
+
+    def _game_update_display(self):
+        if not self._game_scorer:
+            return
+        sc = self._game_scorer
+        self._game_score_var.set(str(sc.int_score()))
+
+        mult = sc.streak_mult()
+        score_col = ("#e879f9" if mult >= 4.0 else
+                     RED        if mult >= 3.0 else
+                     "#f97316"  if mult >= 2.0 else
+                     AMBER      if mult >= 1.5 else "#fff")
+        self._game_score_lbl.config(fg=score_col)
+
+        # Combined streak + multiplier label
+        streak = sc.streak
+        if streak > 0:
+            streak_text = f"🔥 {streak} STREAK  ×{mult:.1f}"
+        else:
+            streak_text = f"streak: 0  ×{mult:.1f}"
+        streak_col = ("#e879f9" if mult >= 4.0 else
+                      RED        if mult >= 3.0 else
+                      "#f97316"  if mult >= 2.0 else
+                      AMBER      if mult >= 1.5 else DIM)
+        # Flash red on streak reset
+        if streak == 0 and self._game_streak_prev > 0:
+            self._game_streak_lbl.config(text=streak_text, fg=RED)
+            self.root.after(500, lambda: self._game_streak_lbl.config(fg=DIM)
+                            if self._game_scorer and self._game_scorer.streak == 0
+                            else None)
+        else:
+            self._game_streak_lbl.config(text=streak_text, fg=streak_col)
+        self._game_streak_prev = streak
+
+        if self._game_time_limit:
+            remaining = max(0, self._game_time_limit - self._game_elapsed)
+            self._game_timer_var.set(
+                fmt_time(remaining) + (" ⚠" if remaining < 30 else ""))
+            self._game_timer_lbl.config(
+                fg=RED if remaining < 30 else
+                AMBER if remaining < 60 else DIM)
+        else:
+            self._game_timer_var.set(fmt_time(self._game_elapsed))
+            self._game_timer_lbl.config(fg=DIM)
+
+        # Progress bar (challenge word-count goal)
+        if self._game_submode == "challenge" and self._game_challenge:
+            goal = self._game_challenge['goal']
+            if goal['type'] == 'word_count':
+                wc  = self._game_scorer.total_words
+                tgt = goal['target']
+                self._game_prog_var.set(f"{wc} / {tgt}")
+                self._game_prog_frame.pack(fill=tk.X)
+
+                def _draw_prog():
+                    w = self._game_prog_bar.winfo_width()
+                    self._game_prog_bar.delete("all")
+                    pct = min(1.0, wc / tgt) if tgt else 0
+                    self._game_prog_bar.create_rectangle(
+                        0, 0, int(w * pct), 3,
+                        fill=GREEN if pct >= 1.0 else GAME_ACC, outline="")
+                self._game_prog_bar.after_idle(_draw_prog)
+        else:
+            self._game_prog_frame.pack_forget()
+
+    def _game_show_word_feedback(self, pts: float, compliant: bool):
+        """Flash per-word score feedback below the score label."""
+        if self._game_feedback_job:
+            self.root.after_cancel(self._game_feedback_job)
+            self._game_feedback_job = None
+        if compliant:
+            mult = self._game_scorer.streak_mult() if self._game_scorer else 1.0
+            if mult > 1.0:
+                text = f"+{int(pts)}  ×{mult:.1f}"
+            else:
+                text = f"+{int(pts)}"
+            self._game_feedback_lbl.config(fg=GREEN)
+        else:
+            text = "STREAK LOST"
+            self._game_feedback_lbl.config(fg=RED)
+        self._game_feedback_var.set(text)
+        self._game_feedback_job = self.root.after(
+            1000, lambda: self._game_feedback_var.set(""))
+
+    def _game_on_text_change(self, analysis: dict):
+        """Called from _on_key_release when game session is active."""
+        if self._game_state != "active" or not self._game_scorer:
+            return
+        wc = analysis['word_count']
+        # Only score words that are "complete" (followed by whitespace).
+        # If text does NOT end with whitespace, the last token is still being typed —
+        # hold it back so feedback fires on the space keypress, not the first letter.
+        trailing_ws = bool(self.text_content and self.text_content[-1] in ' \t\n')
+        complete_wc = wc if trailing_ws else max(0, wc - 1)
+        if complete_wc <= self._game_last_wc:
+            return
+        raw_words  = get_words(self.text_content)
+        viol_idxs  = {v['word_index'] for v in analysis['violations']}
+        now        = time.monotonic()
+        for i in range(self._game_last_wc, complete_wc):
+            if i >= len(raw_words):
+                break
+            word      = clean_word(raw_words[i])
+            if not word:
+                continue
+            compliant = i not in viol_idxs
+            pts = self._game_scorer.score_word(word, compliant, now)
+            self._game_show_word_feedback(pts, compliant)
+        self._game_last_wc = complete_wc
+        self._game_update_display()
+        self._game_check_goal(analysis)
+
+    def _game_check_goal(self, analysis: dict):
+        """Check if challenge/SA goal has been met."""
+        if self._game_state != "active":
+            return
+        if self._game_submode != "challenge":
+            return
+        ch   = self._game_challenge
+        goal = ch['goal']
+        sc   = self._game_scorer
+        met  = False
+        if goal['type'] == 'word_count':
+            met = sc.total_words >= goal['target']
+        elif goal['type'] == 'score_target':
+            met = sc.int_score() >= goal['target']
+        if met:
+            self._game_end_session(timed_out=False)
+
+    def _game_stop_session(self):
+        """User manually stops the session."""
+        if self._game_state == "active":
+            self._game_end_session(timed_out=False, manual_stop=True)
+        elif self._game_state == "countdown":
+            self._game_state = "idle"
+            self._game_show_live(False)
+
+    def _game_end_session(self, timed_out: bool = False,
+                          manual_stop: bool = False):
+        self._game_state = "done"
+        if self._game_timer_job:
+            self.root.after_cancel(self._game_timer_job)
+            self._game_timer_job = None
+        self.timer_running = False
+
+        sc = self._game_scorer
+        if not sc:
+            self._game_state = "idle"
+            self._game_show_live(False)
+            return
+
+        remaining = 0
+        if self._game_time_limit:
+            remaining = max(0, self._game_time_limit - self._game_elapsed)
+
+        stars = 0
+        if self._game_submode == "challenge" and self._game_challenge:
+            stars = eval_stars(self._game_challenge, sc.compliance,
+                               remaining, sc.int_score())
+
+        entry = {
+            "score":       sc.int_score(),
+            "compliance":  round(sc.compliance, 3),
+            "words":       sc.total_words,
+            "peak_streak": sc.peak_streak,
+            "peak_mult":   sc.peak_mult,
+            "date":        datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
+        # Capture previous best before saving new score
+        _prev_best = self._get_best_score()
+
+        # Persist score silently in background (capture state before thread)
+        _submode   = self._game_submode
+        _challenge = self._game_challenge
+        _sa_preset = self._game_sa_preset
+        _diff      = self._game_difficulty
+        _elapsed   = self._game_elapsed
+        def _save():
+            data = load_scores()
+            if _submode == "challenge" and _challenge:
+                entry["stars"]        = stars
+                entry["time_seconds"] = _elapsed
+                append_score(data, "challenges",
+                             _challenge['id'], _diff, entry)
+            else:
+                key = f"preset:{_sa_preset['id']}" if _sa_preset else "custom"
+                entry["duration"] = _elapsed
+                append_score(data, "score_attack", key, _diff, entry)
+            save_scores(data)
+        threading.Thread(target=_save, daemon=True).start()
+
+        # Set elapsed in entry so results panel can display it
+        if _submode == "challenge" and _challenge:
+            entry["time_seconds"] = _elapsed
+        else:
+            entry["duration"] = _elapsed
+
+        # Hide live frame without restoring the pre-session UI
+        self._game_live_frame.pack_forget()
+        self._game_state = "idle"
+        self.root.after(50, lambda: self._game_show_results(
+            entry, stars, timed_out, manual_stop, _prev_best))
+
+    def _game_back_to_list(self):
+        """Return to the challenge or preset list from info/results panels."""
+        self._game_ch_info_frame.pack_forget()
+        self._game_results_frame.pack_forget()
+        if self._game_submode == "challenge":
+            self._ch_list_frame.pack(fill=tk.X)
+        else:
+            if not self._sa_list_frame.winfo_ismapped():
+                self._sa_list_frame.pack(fill=tk.X, padx=6)
+            if not self._game_start_btn.winfo_ismapped():
+                self._game_start_btn.pack(
+                    fill=tk.X, padx=8, pady=4, before=self._game_lb_div)
+
+    def _game_show_results(self, entry: dict, stars: int,
+                           timed_out: bool, manual_stop: bool,
+                           prev_best: int | None = None):
+        """Populate and show the in-sidebar results panel."""
+        is_challenge = (self._game_submode == "challenge"
+                        and self._game_challenge)
+
+        # Title line
+        if is_challenge:
+            title = self._game_challenge['name']
+        elif self._game_sa_preset:
+            title = f"Score Attack — {self._game_sa_preset['name']}"
+        else:
+            title = "Score Attack"
+        if timed_out:
+            title += "  · Time's Up!"
+        elif manual_stop:
+            title += "  · Stopped"
+        self._game_res_title_var.set(title)
+
+        # Stars (challenge only)
+        if is_challenge:
+            star_str = "★" * stars + "☆" * (3 - stars)
+            star_col = (GREEN if stars == 3 else
+                        AMBER if stars == 2 else
+                        RED   if stars == 1 else DIM2)
+            self._game_res_stars_var.set(star_str)
+            self._game_res_stars_lbl.config(fg=star_col)
+            self._game_res_stars_lbl.pack(pady=(4, 0))
+        else:
+            self._game_res_stars_lbl.pack_forget()
+
+        # Score
+        self._game_res_score_var.set(str(entry['score']))
+
+        # High score callout
+        best = prev_best
+        is_new_high = (best is None or entry['score'] > best) and entry['score'] > 0
+        if is_new_high:
+            self._game_res_highscore_var.set("🏆 NEW HIGH SCORE")
+            self._game_res_highscore_lbl.config(fg=AMBER)
+            self._game_res_highscore_lbl.pack(pady=(2, 0))
+        elif best is not None and best > 0:
+            self._game_res_highscore_var.set(f"Best: {best}")
+            self._game_res_highscore_lbl.config(fg=DIM2)
+            self._game_res_highscore_lbl.pack(pady=(2, 0))
+        else:
+            self._game_res_highscore_lbl.pack_forget()
+
+        # Stats
+        elapsed = entry.get('time_seconds', entry.get('duration', 0))
+        co = entry['compliance']
+        co_col = (GREEN if co >= 0.95 else AMBER if co >= 0.80 else RED)
+        self._game_res_stat_vars['time'].set(fmt_time(elapsed))
+        self._game_res_stat_vars['words'].set(str(entry['words']))
+        self._game_res_stat_vars['comply'].set(f"{int(co*100)}%")
+        self._game_res_stat_vars['streak'].set(str(entry['peak_streak']))
+        self._game_res_stat_vars['mult'].set(
+            f"×{entry.get('peak_mult', 1.0):.1f}")
+
+        # Wire buttons
+        self._game_res_retry_btn.config(
+            command=self._game_start_countdown)
+
+        # Always repack back btn last to preserve [Retry][Next?][Back] order
+        self._game_res_back_btn.pack_forget()
+        if is_challenge:
+            ch_list = GAME_CHALLENGES
+            idx = next((i for i, c in enumerate(ch_list)
+                        if c['id'] == self._game_challenge['id']), -1)
+            if idx >= 0 and idx + 1 < len(ch_list):
+                next_ch = ch_list[idx + 1]
+                self._game_res_next_btn.config(
+                    command=lambda c=next_ch: [
+                        self._game_results_frame.pack_forget(),
+                        self._game_select_challenge(c),
+                    ])
+                self._game_res_next_btn.pack(
+                    side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+            else:
+                self._game_res_next_btn.pack_forget()
+            self._game_res_back_btn.config(
+                text="← Challenges",
+                command=self._game_back_to_list)
+        else:
+            self._game_res_next_btn.pack_forget()
+            self._game_res_back_btn.config(
+                text="← Presets",
+                command=self._game_back_to_list)
+        self._game_res_back_btn.pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
+
+        # Unlock notification
+        newly = self._get_newly_unlocked()
+        if newly:
+            names = ", ".join(c['name'] for c in newly)
+            self._game_res_unlock_var.set(f"🔓 UNLOCKED: {names}")
+            self._game_res_unlock_lbl.pack(fill=tk.X, padx=10, pady=(4, 0))
+            self._game_refresh_challenge_list()
+        else:
+            self._game_res_unlock_lbl.pack_forget()
+
+        # Show the results frame
+        self._game_results_frame.pack(
+            fill=tk.X, before=self._game_lb_div)
+
+    def _get_best_score(self) -> int | None:
+        """Return best previous score for current challenge/preset+difficulty, or None."""
+        data = load_scores()
+        diff = self._game_difficulty
+        if self._game_submode == "challenge" and self._game_challenge:
+            entries = data.get("challenges", {}).get(
+                self._game_challenge['id'], {}).get(diff, [])
+        elif self._game_sa_preset:
+            key = f"preset:{self._game_sa_preset['id']}"
+            entries = data.get("score_attack", {}).get(key, {}).get(diff, [])
+        else:
+            return None
+        if not entries:
+            return None
+        return max(e.get('score', 0) for e in entries)
+
+    def _get_newly_unlocked(self) -> list:
+        """Return list of challenge dicts newly unlocked by the last session."""
+        new_unlocked = get_unlocked_challenges()
+        newly = [ch for ch in GAME_CHALLENGES
+                 if ch['id'] in new_unlocked
+                 and ch['id'] not in self._game_unlocked]
+        self._game_unlocked = new_unlocked
+        return newly
+
+    def _game_show_leaderboard(self):
+        from tkinter import ttk
+        data = load_scores()
+        win  = tk.Toplevel(self.root)
+        win.title("Scores")
+        win.configure(bg=GAME_BG)
+        win.geometry("540x420")
+        win.attributes("-topmost", True)
+
+        tk.Label(win, text="LEADERBOARDS", fg=GAME_ACC, bg=GAME_BG,
+                 font=("Courier New", 11, "bold")).pack(
+                 anchor=tk.W, padx=16, pady=(14, 4))
+
+        # Build flat list of all entries
+        rows = []
+        for cid, diffs in data.get("challenges", {}).items():
+            ch_name = next((c['name'] for c in GAME_CHALLENGES
+                           if c['id'] == cid), cid)
+            for diff, entries in diffs.items():
+                for e in entries[:10]:
+                    rows.append((ch_name, diff,
+                                 str(e.get('score', 0)),
+                                 "★"*e.get('stars', 0),
+                                 f"{int(e.get('compliance',0)*100)}%",
+                                 e.get('date','')[:10]))
+        for pid, diffs in data.get("score_attack", {}).items():
+            label = pid.replace("preset:", "SA: ").replace("custom","SA: custom")
+            for diff, entries in diffs.items():
+                for e in entries[:10]:
+                    rows.append((label, diff,
+                                 str(e.get('score', 0)),
+                                 "—",
+                                 f"{int(e.get('compliance',0)*100)}%",
+                                 e.get('date','')[:10]))
+
+        style = ttk.Style(win)
+        style.theme_use('clam')
+        style.configure("Game.Treeview",
+            background=GAME_BG2, foreground=DIM,
+            rowheight=22, fieldbackground=GAME_BG2,
+            bordercolor=GAME_BG, font=("Courier New", 9))
+        style.configure("Game.Treeview.Heading",
+            background=GAME_BG, foreground=DIM2,
+            font=("Courier New", 8, "bold"))
+
+        cols = ("Mode", "Diff", "Score", "Stars", "Comply", "Date")
+        tv   = ttk.Treeview(win, columns=cols, show="headings",
+                             style="Game.Treeview")
+        for col, w in zip(cols, [140, 50, 60, 50, 60, 80]):
+            tv.heading(col, text=col)
+            tv.column(col, width=w, anchor=tk.CENTER
+                       if col != "Mode" else tk.W)
+
+        if rows:
+            rows.sort(key=lambda r: -int(r[2]))
+            for r in rows:
+                tv.insert("", tk.END, values=r)
+        else:
+            tv.insert("", tk.END, values=("No scores yet","","","","",""))
+
+        sb2 = ttk.Scrollbar(win, orient=tk.VERTICAL, command=tv.yview)
+        tv.configure(yscrollcommand=sb2.set)
+        sb2.pack(side=tk.RIGHT, fill=tk.Y, padx=(0,8), pady=(0,8))
+        tv.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0,8))
+
+        tk.Button(win, text="Close", fg=DIM, bg=GAME_BG2, relief=tk.FLAT,
+            font=("Courier New", 9), pady=4, bd=0, cursor="hand2",
+            activebackground=GAME_BG2,
+            command=win.destroy).pack(pady=(0,8))
 
     def _make_preset_row(self, parent, p: dict, deletable: bool):
         row = tk.Frame(parent, bg=BG2, cursor="hand2")
@@ -1161,6 +2543,21 @@ class ConstrainedApp:
             return "break"
 
     def _on_key_release(self, event):
+        # In game mode, block write-mode timer entirely
+        if self._game_mode == "game" and self._game_state != "active":
+            return
+        if self._game_state == "active":
+            self.text_content = self.text_widget.get("1.0", tk.END)
+            constraints = (self._game_challenge['constraints']
+                           if self._game_submode == "challenge"
+                              and self._game_challenge
+                           else (self._game_sa_preset['constraints']
+                                 if self._game_sa_preset else []))
+            self.analysis = analyze_text(
+                self.text_content, constraints, self._game_elapsed)
+            self._game_on_text_change(self.analysis)
+            return
+
         if self.timer_target and self.elapsed >= self.timer_target:
             return
         self.text_content = self.text_widget.get("1.0", tk.END)
@@ -1412,6 +2809,17 @@ class ConstrainedApp:
         self.viol_text.config(state=tk.DISABLED)
 
     def _update_context_bar(self):
+        if self._game_mode == "game":
+            if self._game_state == "active":
+                if self._game_submode == "challenge" and self._game_challenge:
+                    self.ctx_lbl.config(text=self._game_challenge['name'])
+                elif self._game_sa_preset:
+                    self.ctx_lbl.config(text=f"Score Attack — {self._game_sa_preset['name']}")
+                else:
+                    self.ctx_lbl.config(text="Game Mode")
+            else:
+                self.ctx_lbl.config(text="Game Mode")
+            return
         name = "Custom" if self.custom_constraints else self.active_preset['name']
         desc = ("Custom constraints" if self.custom_constraints
                 else self.active_preset['desc'])

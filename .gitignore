@@ -3,3 +3,10 @@ __pycache__/
 *.pyo
 .DS_Store
 constrained-*.txt
+tether-linux
+tether-linux3.1
+tether.bin
+tether-linux*
+*.bin
+*.png
+stillRunning.png
