@@ -1,0 +1,124 @@
+name: Build Tether
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact_name: tether-linux
+            binary_path:   tether-linux
+          - os: macos-latest
+            artifact_name: tether-macos
+            binary_path:   tether-macos
+          - os: windows-2022
+            artifact_name: tether-windows
+            binary_path:   tether.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tkinter (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y python3-tk
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install nuitka spacy textstat
+
+      - name: Download spaCy model
+        run: python -m spacy download en_core_web_sm
+
+      - name: Locate spaCy model directory (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          MODEL_PATH=$(python -c "
+          import en_core_web_sm, os
+          print(os.path.dirname(en_core_web_sm.__file__))
+          ")
+          echo "SPACY_MODEL_PATH=$MODEL_PATH" >> $GITHUB_ENV
+
+      - name: Locate spaCy model directory (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $MODEL_PATH = python -c "import en_core_web_sm, os; print(os.path.dirname(en_core_web_sm.__file__))"
+          echo "SPACY_MODEL_PATH=$MODEL_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build with Nuitka (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          python -m nuitka \
+            --onefile \
+            --enable-plugin=tk-inter \
+            --include-data-dir="${{ env.SPACY_MODEL_PATH }}"=en_core_web_sm \
+            --include-data-file=wordlist.txt=wordlist.txt \
+            --include-package-data=pyphen \
+            --output-filename=${{ matrix.binary_path }} \
+            --assume-yes-for-downloads \
+            tether.py
+
+      - name: Build with Nuitka (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m nuitka `
+            --onefile `
+            --enable-plugin=tk-inter `
+            --include-data-dir="${{ env.SPACY_MODEL_PATH }}"=en_core_web_sm `
+            --include-data-file=wordlist.txt=wordlist.txt `
+            --include-package-data=pyphen `
+            --windows-console-mode=disable `
+            --output-filename=${{ matrix.binary_path }} `
+            --assume-yes-for-downloads `
+            tether.py
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.binary_path }}
+          name: "Tether ${{ github.ref_name }}"
+          body: |
+            ## Tether ${{ github.ref_name }}
+
+            | Platform | File |
+            |----------|------|
+            | Linux    | `tether-linux` |
+            | macOS    | `tether-macos` |
+            | Windows  | `tether-windows.exe` |
+
+            **Linux / macOS:** after download, make executable:
+            ```
+            chmod +x tether-linux
+            ./tether-linux
+            ```
+
+            **Windows:** double-click `tether.exe`.
+            Click "More info" then "Run anyway" if SmartScreen appears.
+
+            No installation required. No Python needed.

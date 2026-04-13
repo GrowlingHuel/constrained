@@ -410,23 +410,23 @@ GAME_CHALLENGES = [
 
 GAME_SA_PRESETS = [
     {"id":"sa-blitz","name":"Blitz",
-     "desc":"4-letter words, 2 minutes. Fast and focused.",
+     "desc":"Write using only 4-letter words. Fast and focused — how many points can you score in 2 minutes?",
      "constraints":[{"type":"wordLength","exact":4}],
      "default_duration":120},
     {"id":"sa-endurance","name":"Endurance",
-     "desc":"No repeats + real words. How far can you go?",
+     "desc":"No repeated words, and every word must be real. How long can you keep going without repeating yourself?",
      "constraints":[{"type":"noRepeat","contentOnly":True},{"type":"dictCheck"}],
      "default_duration":None},
     {"id":"sa-alpha-grind","name":"Alphabet Grind",
-     "desc":"Alphabet cycle + real words, endless.",
+     "desc":"Each word must start with the next letter of the alphabet, and every word must be real. Cycle after cycle — keep the streak alive.",
      "constraints":[_AC, {"type":"dictCheck"}],
      "default_duration":None},
     {"id":"sa-word-hoarder","name":"Word Hoarder",
-     "desc":"5-letter words + pangram in 100. 5 minutes.",
+     "desc":"Words must be 5+ letters, and use every letter of the alphabet within 100 words. Score big with long, rare words.",
      "constraints":[{"type":"wordLength","exact":5},{"type":"pangram","withinWords":100}],
      "default_duration":300},
     {"id":"sa-freeform","name":"Free Attack",
-     "desc":"No constraints — pure scoring on vocabulary richness.",
+     "desc":"No constraints — pure score chasing. Every word counts, longer and rarer words score more.",
      "constraints":[],
      "default_duration":300},
 ]
@@ -566,10 +566,11 @@ def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
             used_letters.add(ch)
         raw = raw_words[i] if i < len(raw_words) else word
 
-        if wl and wl.get('exact') and len(word) != wl['exact']:
+        alpha_len = sum(1 for c in word if c.isalpha())
+        if wl and wl.get('exact') and alpha_len != wl['exact']:
             violations.append({
                 'word_index': i, 'word': raw, 'type': 'wordLength',
-                'message': f'"{raw}" is {len(word)} letters (need {wl["exact"]})',
+                'message': f'"{raw}" is {alpha_len} letters (need {wl["exact"]})',
                 'colour': RED})
 
         if cyc and alpha:
@@ -726,6 +727,8 @@ class GameScorer:
         self.score       = 0.0
         self.total_words = 0
         self.compliant_words = 0
+        self.unique_compliant_words = 0
+        self._seen_raw_words: set   = set()
         self._consec_viols   = 0
         self._last_viol_time = 0.0
 
@@ -736,13 +739,17 @@ class GameScorer:
         return 1.0
 
     def score_word(self, word: str, compliant: bool,
-                   now: float = None) -> float:
+                   now: float = None, raw_word: str = "") -> float:
         if now is None:
             now = time.monotonic()
         self.total_words += 1
         if compliant:
             self.streak      += 1
             self.compliant_words += 1
+            raw_key = (raw_word.lower() if raw_word else word)
+            if raw_key not in self._seen_raw_words:
+                self.unique_compliant_words += 1
+                self._seen_raw_words.add(raw_key)
             self.peak_streak  = max(self.peak_streak, self.streak)
             self.peak_mult    = max(self.peak_mult, self.streak_mult())
             self._consec_viols = 0
@@ -1334,7 +1341,41 @@ class ConstrainedApp:
             command=self._game_start_countdown)
         self._game_ch_start_btn.pack(fill=tk.X, padx=8, pady=(4,8))
 
-        # ── Start button (Score Attack) ───────────────────────────
+        # ── Score Attack info panel (shown when a preset is selected) ────
+        self._game_sa_info_frame = tk.Frame(sb, bg=GAME_BG)
+        tk.Button(self._game_sa_info_frame, text="← Back",
+            bg=GAME_BG, fg=DIM, relief=tk.FLAT,
+            font=("Courier New", 8), pady=3, bd=0, cursor="hand2",
+            activeforeground=GAME_ACC, activebackground=GAME_BG,
+            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4,0))
+        self._sa_info_name_var = tk.StringVar(value="")
+        tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_name_var,
+            fg="#fff", bg=GAME_BG, font=("Courier New", 11, "bold"),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,2))
+        self._sa_info_desc_var = tk.StringVar(value="")
+        tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_desc_var,
+            fg=DIM, bg=GAME_BG, font=("Courier New", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(0,4))
+        tk.Frame(self._game_sa_info_frame, bg="#1e1a2e", height=1).pack(
+            fill=tk.X, padx=6, pady=2)
+        self._sa_info_constr_var = tk.StringVar(value="")
+        tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_constr_var,
+            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,0))
+        self._sa_info_dur_var = tk.StringVar(value="")
+        tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_dur_var,
+            fg=DIM2, bg=GAME_BG, font=("Courier New", 8)).pack(
+            anchor=tk.W, padx=10, pady=(2,4))
+        self._game_sa_start_btn = tk.Button(self._game_sa_info_frame,
+            text="▶  START",
+            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
+            font=("Courier New", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#fff",
+            activebackground="#6d28d9",
+            command=self._game_start_countdown)
+        self._game_sa_start_btn.pack(fill=tk.X, padx=8, pady=(4,8))
+
+        # ── Start button (Score Attack, legacy — kept hidden, used for countdown anim fallback) ──
         self._game_pre_start_div = tk.Frame(sb, bg="#1e1a2e", height=1)
         # not packed — _game_lb_div is the layout anchor
         self._game_start_btn = tk.Button(sb, text="▶  START",
@@ -1535,6 +1576,7 @@ class ConstrainedApp:
                 activeforeground=GAME_ACC, activebackground=BG3)
             if self._game_state == "active":
                 self._game_stop_session()
+        self._update_context_bar()
 
     def _game_set_submode(self, mode: str):
         self._game_submode = mode
@@ -1551,14 +1593,10 @@ class ConstrainedApp:
             self._ch_btn.config(bg=GAME_BG2, fg=DIM)
             self._ch_list_frame.pack_forget()
             self._game_ch_info_frame.pack_forget()
+            self._game_sa_info_frame.pack_forget()
             self._game_results_frame.pack_forget()
+            self._game_start_btn.pack_forget()
             self._sa_list_frame.pack(fill=tk.X, padx=6)
-            if not self._game_start_btn.winfo_ismapped():
-                self._game_start_btn.pack(
-                    fill=tk.X, padx=8, pady=4,
-                    before=self._game_lb_div)
-            if not self._game_sa_preset and GAME_SA_PRESETS:
-                self._game_select_sa_preset(GAME_SA_PRESETS[0])
 
     def _game_set_difficulty(self, d: str):
         self._game_difficulty = d
@@ -1646,7 +1684,23 @@ class ConstrainedApp:
             lbl.config(bg="#0d1626" if active else GAME_BG,
                        fg="#fff" if active else DIM)
             dot.config(bg="#0d1626" if active else GAME_BG)
-        self._game_start_btn.config(text=f"▶  {p['name'][:18]}")
+        # Populate info panel
+        self._sa_info_name_var.set(p['name'])
+        self._sa_info_desc_var.set(p['desc'])
+        constr_text = constraints_summary(p['constraints']) or "No constraints"
+        self._sa_info_constr_var.set(constr_text)
+        dur_val = self._game_sa_duration if self._game_sa_timed else None
+        self._sa_info_dur_var.set(
+            f"duration: {fmt_time(dur_val)}" if dur_val else "duration: ∞")
+        self._game_sa_start_btn.config(
+            text="▶  START", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+        # Hide list, show info panel
+        self._sa_list_frame.pack_forget()
+        self._game_results_frame.pack_forget()
+        self._game_start_btn.pack_forget()
+        if not self._game_sa_info_frame.winfo_ismapped():
+            self._game_sa_info_frame.pack(
+                fill=tk.X, before=self._game_lb_div)
 
     def _game_start_countdown(self):
         if self._game_state in ("countdown", "active"):
@@ -1672,7 +1726,7 @@ class ConstrainedApp:
         if self._game_state != "countdown":
             return
         btn = (self._game_ch_start_btn if self._game_submode == "challenge"
-               else self._game_start_btn)
+               else self._game_sa_start_btn)
         if n > 0:
             btn.config(text=str(n), bg="#3a1a0a", fg=AMBER, state=tk.DISABLED)
             self.root.after(1000, lambda: self._game_do_countdown(n - 1))
@@ -1700,6 +1754,7 @@ class ConstrainedApp:
         self._game_state     = "active"
         self._game_start_mono = time.monotonic()
         self._game_elapsed   = 0
+        self._update_context_bar()
         self._game_show_live(True)
         self.text_widget.focus_set()
         self._game_tick()
@@ -1709,6 +1764,7 @@ class ConstrainedApp:
             self._game_live_frame.pack(
                 fill=tk.X, before=self._game_lb_div)
             self._game_ch_info_frame.pack_forget()
+            self._game_sa_info_frame.pack_forget()
             self._game_results_frame.pack_forget()
             self._game_start_btn.pack_forget()
         else:
@@ -1723,18 +1779,15 @@ class ConstrainedApp:
                         text="▶  START CHALLENGE",
                         bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
             else:
-                if not self._game_start_btn.winfo_ismapped():
-                    self._game_start_btn.pack(
-                        fill=tk.X, padx=8, pady=4,
-                        before=self._game_lb_div)
                 if self._game_sa_preset:
-                    self._game_start_btn.config(
-                        text=f"▶  {self._game_sa_preset['name'][:18]}",
-                        bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+                    if not self._game_sa_info_frame.winfo_ismapped():
+                        self._game_sa_info_frame.pack(
+                            fill=tk.X, before=self._game_lb_div)
+                    self._game_sa_start_btn.config(
+                        text="▶  START", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
                 else:
-                    self._game_start_btn.config(
-                        text="▶  START", bg=GAME_ACC, fg="#fff",
-                        state=tk.NORMAL)
+                    if not self._sa_list_frame.winfo_ismapped():
+                        self._sa_list_frame.pack(fill=tk.X, padx=6)
 
     def _game_tick(self):
         if self._game_state != "active":
@@ -1798,7 +1851,7 @@ class ConstrainedApp:
         if self._game_submode == "challenge" and self._game_challenge:
             goal = self._game_challenge['goal']
             if goal['type'] == 'word_count':
-                wc  = self._game_scorer.total_words
+                wc  = self._game_scorer.unique_compliant_words
                 tgt = goal['target']
                 self._game_prog_var.set(f"{wc} / {tgt}")
                 self._game_prog_frame.pack(fill=tk.X)
@@ -1841,7 +1894,11 @@ class ConstrainedApp:
         # Only score words that are "complete" (followed by whitespace).
         # If text does NOT end with whitespace, the last token is still being typed —
         # hold it back so feedback fires on the space keypress, not the first letter.
-        trailing_ws = bool(self.text_content and self.text_content[-1] in ' \t\n')
+        # NOTE: Tkinter's text_widget.get("1.0", tk.END) always appends one trailing \n;
+        # strip exactly that character before checking so it doesn't masquerade as
+        # user-typed whitespace and cause incomplete words to be scored prematurely.
+        _tc = self.text_content[:-1] if self.text_content else ''
+        trailing_ws = bool(_tc and _tc[-1] in ' \t\n')
         complete_wc = wc if trailing_ws else max(0, wc - 1)
         if complete_wc <= self._game_last_wc:
             return
@@ -1855,7 +1912,7 @@ class ConstrainedApp:
             if not word:
                 continue
             compliant = i not in viol_idxs
-            pts = self._game_scorer.score_word(word, compliant, now)
+            pts = self._game_scorer.score_word(word, compliant, now, raw_words[i])
             self._game_show_word_feedback(pts, compliant)
         self._game_last_wc = complete_wc
         self._game_update_display()
@@ -1872,7 +1929,7 @@ class ConstrainedApp:
         sc   = self._game_scorer
         met  = False
         if goal['type'] == 'word_count':
-            met = sc.total_words >= goal['target']
+            met = sc.unique_compliant_words >= goal['target']
         elif goal['type'] == 'score_target':
             met = sc.int_score() >= goal['target']
         if met:
@@ -1950,21 +2007,25 @@ class ConstrainedApp:
         # Hide live frame without restoring the pre-session UI
         self._game_live_frame.pack_forget()
         self._game_state = "idle"
+        self._update_context_bar()
         self.root.after(50, lambda: self._game_show_results(
             entry, stars, timed_out, manual_stop, _prev_best))
 
     def _game_back_to_list(self):
         """Return to the challenge or preset list from info/results panels."""
         self._game_ch_info_frame.pack_forget()
+        self._game_sa_info_frame.pack_forget()
         self._game_results_frame.pack_forget()
+        self._game_start_btn.pack_forget()
+        # Clear the editor so previous session text doesn't linger
+        self.text_widget.config(state=tk.NORMAL)
+        self.text_widget.delete("1.0", tk.END)
+        self.text_content = ""
         if self._game_submode == "challenge":
             self._ch_list_frame.pack(fill=tk.X)
         else:
             if not self._sa_list_frame.winfo_ismapped():
                 self._sa_list_frame.pack(fill=tk.X, padx=6)
-            if not self._game_start_btn.winfo_ismapped():
-                self._game_start_btn.pack(
-                    fill=tk.X, padx=8, pady=4, before=self._game_lb_div)
 
     def _game_show_results(self, entry: dict, stars: int,
                            timed_out: bool, manual_stop: bool,
