@@ -535,12 +535,14 @@ def deep_analyze(text: str) -> dict:
 
 
 def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
-    raw_words   = get_words(text)
-    words       = [clean_word(w) for w in raw_words]
-    words       = [w for w in words if w]
-    word_count  = len(words)
-    minutes     = elapsed / 60
-    wpm         = round(word_count / minutes) if minutes > 0.1 else 0
+    raw_words    = get_words(text)
+    # Keep a parallel cleaned list so raw_idx always maps to the right raw word.
+    words_clean  = [clean_word(w) for w in raw_words]
+    # Filtered list for word_count, compliance, pangram window, etc.
+    words        = [w for w in words_clean if w]
+    word_count   = len(words)
+    minutes      = elapsed / 60
+    wpm          = round(word_count / minutes) if minutes > 0.1 else 0
 
     violations:    list = []
     letter_counts: dict = {}
@@ -557,19 +559,27 @@ def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
 
     alpha = cycle_alpha(cyc.get('skipX', False)) if cyc else []
 
-    for i, word in enumerate(words):
+    # Iterate over raw_words so that violation word_index values are raw indices.
+    # This lets _game_on_text_change compare directly against its own raw_words loop
+    # without any off-by-one caused by words_clean filtering out empty-cleaning tokens.
+    # clean_pos tracks position within the non-empty cleaned words (for position-sensitive
+    # constraints like alphaCycle and compliance counting).
+    clean_pos = 0
+    for raw_idx, raw_w in enumerate(raw_words):
+        word = words_clean[raw_idx]
         if not word:
             continue
+        i   = clean_pos   # clean-word position for position-sensitive checks
+        raw = raw_w
         first = word[0]
         letter_counts[first] = letter_counts.get(first, 0) + 1
         for ch in word:
             used_letters.add(ch)
-        raw = raw_words[i] if i < len(raw_words) else word
 
         alpha_len = sum(1 for c in word if c.isalpha())
         if wl and wl.get('exact') and alpha_len != wl['exact']:
             violations.append({
-                'word_index': i, 'word': raw, 'type': 'wordLength',
+                'word_index': raw_idx, 'word': raw, 'type': 'wordLength',
                 'message': f'"{raw}" is {alpha_len} letters (need {wl["exact"]})',
                 'colour': RED})
 
@@ -578,13 +588,13 @@ def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
             x_optional = cyc.get('xOptional', True)
             if not (expected == 'x' and x_optional) and first != expected:
                 violations.append({
-                    'word_index': i, 'word': raw, 'type': 'alphaCycle',
+                    'word_index': raw_idx, 'word': raw, 'type': 'alphaCycle',
                     'message': f'Word {i+1}: expected "{expected.upper()}", got "{first.upper()}"',
                     'colour': RED})
 
         if sl_max and letter_counts[first] > sl_max['max']:
             violations.append({
-                'word_index': i, 'word': raw, 'type': 'startLetterMax',
+                'word_index': raw_idx, 'word': raw, 'type': 'startLetterMax',
                 'message': f'"{first.upper()}" used {letter_counts[first]}x (max {sl_max["max"]})',
                 'colour': RED})
 
@@ -594,7 +604,7 @@ def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
                 lemma = get_lemma(word)
                 if lemma in seen_lemmas and seen_lemmas[lemma] != raw:
                     violations.append({
-                        'word_index': i, 'word': raw, 'type': 'noRepeat',
+                        'word_index': raw_idx, 'word': raw, 'type': 'noRepeat',
                         'message': f'"{raw}" repeats "{seen_lemmas[lemma]}" (same root)',
                         'colour': AMBER})
                 else:
@@ -602,9 +612,11 @@ def analyze_text(text: str, constraints: list, elapsed: int) -> dict:
 
         if dict_c and WORDLIST and not check_dictionary(word):
             violations.append({
-                'word_index': i, 'word': raw, 'type': 'dictCheck',
+                'word_index': raw_idx, 'word': raw, 'type': 'dictCheck',
                 'message': f'"{raw}" not found in dictionary',
                 'colour': BLUE})
+
+        clean_pos += 1
 
     pang_progress = None
     if pangram:
@@ -1903,17 +1915,28 @@ class ConstrainedApp:
         if complete_wc <= self._game_last_wc:
             return
         raw_words  = get_words(self.text_content)
+        # viol_idxs contains raw word indices (matching raw_words positions)
         viol_idxs  = {v['word_index'] for v in analysis['violations']}
         now        = time.monotonic()
-        for i in range(self._game_last_wc, complete_wc):
-            if i >= len(raw_words):
-                break
-            word      = clean_word(raw_words[i])
+        # Iterate raw_words while tracking clean-word count separately.
+        # _game_last_wc and complete_wc are both clean-word counts, but violation
+        # indices are raw indices — so we need both counters in sync.
+        clean_seen = 0
+        for raw_i, raw_w in enumerate(raw_words):
+            word = clean_word(raw_w)
             if not word:
                 continue
-            compliant = i not in viol_idxs
-            pts = self._game_scorer.score_word(word, compliant, now, raw_words[i])
+            if clean_seen < self._game_last_wc:
+                clean_seen += 1
+                continue
+            if clean_seen >= complete_wc:
+                break
+            compliant = raw_i not in viol_idxs
+            if compliant and WORDLIST and not check_dictionary(word):
+                compliant = False
+            pts = self._game_scorer.score_word(word, compliant, now, raw_w)
             self._game_show_word_feedback(pts, compliant)
+            clean_seen += 1
         self._game_last_wc = complete_wc
         self._game_update_display()
         self._game_check_goal(analysis)
