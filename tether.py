@@ -18,6 +18,7 @@ import os
 import threading
 import urllib.request
 import urllib.error
+import hashlib
 from datetime import datetime
 
 # ═══════════════════════════════════════════════════════════════════
@@ -168,23 +169,29 @@ FUNCTION_WORDS = {
 # PALETTE
 # ═══════════════════════════════════════════════════════════════════
 
-BG     = "#0d0d11"
-BG2    = "#090910"
-BG3    = "#0c0c10"
-BORDER = "#18181e"
-ACCENT = "#f0a500"
-TEXT   = "#e2ddd5"
-DIM    = "#666666"
-DIM2   = "#3a3a3a"
-RED    = "#ef4444"
-GREEN  = "#10b981"
-BLUE   = "#3b82f6"
-AMBER  = "#f59e0b"
+BG     = "#FFFFFF"
+BG2    = "#F5F5F5"
+BG3    = "#F0F0F0"
+BORDER = "#000000"
+ACCENT = "#000000"
+TEXT   = "#000000"
+DIM    = "#555555"
+DIM2   = "#888888"
+RED    = "#000000"
+GREEN  = "#555555"
+BLUE   = "#555555"
+AMBER  = "#888888"
 
-SERIF_SM  = ("Georgia", 9)
+SERIF_SM  = ("Courier", 9)
 GAME_BG   = "#0c0b14"
 GAME_BG2  = "#100f1c"
 GAME_ACC  = "#7c3aed"
+
+# HyperCard / System 7 palette (app-wide)
+HC_BG    = "#FFFFFF"
+HC_FG    = "#000000"
+HC_DIM   = "#555555"
+HC_BOR   = "#000000"
 
 # ═══════════════════════════════════════════════════════════════════
 # DATA
@@ -743,6 +750,7 @@ class GameScorer:
         self._seen_raw_words: set   = set()
         self._consec_viols   = 0
         self._last_viol_time = 0.0
+        self.per_word_scores: list = []   # pts per completed word in order
 
     def streak_mult(self) -> float:
         for threshold, m in self._STREAK_TIERS:
@@ -769,6 +777,7 @@ class GameScorer:
             pts    = base * self.diff_mult * self.streak_mult() * \
                      WORD_RARITY.get(word.lower(), 1.0)
             self.score += pts
+            self.per_word_scores.append(pts)
             return pts
         else:
             self.streak = 0
@@ -782,6 +791,7 @@ class GameScorer:
             elif self.difficulty == 'hard':
                 deduction = min(5.0 * (2 ** (self._consec_viols - 1)), 40.0)
             self.score = max(0.0, self.score - deduction)
+            self.per_word_scores.append(-deduction)
             return -deduction
 
     @property
@@ -832,6 +842,22 @@ def get_unlocked_challenges() -> set:
         if req is None or challenge_has_star(req):
             unlocked.add(ch['id'])
     return unlocked
+
+
+def get_daily_challenge() -> dict:
+    """Return today's challenge, deterministically seeded by date."""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    idx = int(hashlib.md5(date_str.encode()).hexdigest(), 16) % len(GAME_CHALLENGES)
+    ch = dict(GAME_CHALLENGES[idx])
+    ch['_is_daily'] = True
+    ch['_daily_date'] = date_str
+    # daily is always unlocked — override requires
+    ch['requires'] = None
+    return ch
+
+
+def get_daily_date() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 def append_score(data: dict, category: str, key: str,
@@ -911,6 +937,8 @@ class ConstrainedApp:
         self._game_feedback_job  = None   # pending root.after for feedback clear
         self._game_streak_prev   = 0      # track prev streak to detect resets
         self._game_unlocked      = get_unlocked_challenges()
+        self._game_pb_score: int | None = None   # PB captured at session start
+        self._game_streak_tier_prev: float = 1.0 # for milestone flash detection
 
         # Builder vars
         self.b = {
@@ -955,45 +983,52 @@ class ConstrainedApp:
     # ─────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        hdr = tk.Frame(self.root, bg=BG2, height=52)
+        hdr = tk.Frame(self.root, bg=BG2, height=48)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
-        tk.Label(hdr, text="TETHER", fg=ACCENT, bg=BG2,
-                 font=("Courier New", 14, "bold")).pack(side=tk.LEFT, padx=20)
+        tk.Label(hdr, text="TETHER", fg=HC_FG, bg=BG2,
+                 font=("Courier", 16, "bold")).pack(side=tk.LEFT, padx=20)
         tk.Label(hdr, text="typing constraint engine", fg=DIM2, bg=BG2,
                  font=SERIF_SM).pack(side=tk.LEFT, padx=(0, 24))
 
         self.hdr_timer = tk.Label(hdr, text="", fg=DIM, bg=BG2,
-                                   font=("Courier New", 20))
+                                   font=("Courier", 20))
         self.hdr_timer.pack(side=tk.LEFT)
 
         nav = tk.Frame(hdr, bg=BG2)
         nav.pack(side=tk.RIGHT, padx=16)
         self.nav_btns = {}
-        for v, label in [("editor","✎ Editor"),
-                          ("history","◷ History"),
-                          ("builder","⊞ Builder")]:
+        for v, label in [("editor", "✎ Editor"),
+                          ("history", "◷ History"),
+                          ("builder", "⊞ Builder")]:
             b = tk.Button(nav, text=label, bg=BG2, fg=DIM, relief=tk.FLAT,
-                          font=("Courier New", 9), padx=12, pady=7,
-                          cursor="hand2", activebackground=BG2, bd=0,
+                          font=("Courier", 9), padx=10, pady=6,
+                          cursor="hand2", activebackground=HC_BOR,
+                          activeforeground="#FFFFFF", bd=1,
+                          highlightthickness=0,
                           command=lambda v=v: self._show_view(v))
             b.pack(side=tk.LEFT, padx=2)
             self.nav_btns[v] = b
+
+        # 1px bottom border under header
+        tk.Frame(self.root, bg=HC_BOR, height=1).pack(fill=tk.X)
 
         self.body = tk.Frame(self.root, bg=BG)
         self.body.pack(fill=tk.BOTH, expand=True)
 
         # Update notification banner (hidden until needed)
-        self._update_banner = tk.Frame(self.root, bg="#1a1a0a")
+        self._update_banner = tk.Frame(self.root, bg=BG3,
+                                       highlightthickness=1,
+                                       highlightbackground=HC_BOR)
         self._update_lbl    = tk.Label(
-            self._update_banner, text="", fg=AMBER, bg="#1a1a0a",
-            font=("Courier New", 9), pady=4)
+            self._update_banner, text="", fg=HC_FG, bg=BG3,
+            font=("Courier", 9), pady=4)
         self._update_lbl.pack(side=tk.LEFT, padx=16)
         tk.Button(
-            self._update_banner, text="✕", fg=DIM, bg="#1a1a0a",
-            relief=tk.FLAT, font=("Courier New", 9), bd=0,
-            activebackground="#1a1a0a", cursor="hand2",
+            self._update_banner, text="✕", fg=DIM, bg=BG3,
+            relief=tk.FLAT, font=("Courier", 9), bd=0,
+            activebackground=BG3, cursor="hand2",
             command=lambda: self._update_banner.pack_forget()
         ).pack(side=tk.RIGHT, padx=8)
 
@@ -1011,16 +1046,17 @@ class ConstrainedApp:
         sb.pack_propagate(False)
 
         # Write / Game mode toggle
-        _tog = tk.Frame(sb, bg=BG2)
+        self._mode_toggle_frame = tk.Frame(sb, bg=BG2)
+        _tog = self._mode_toggle_frame
         _tog.pack(fill=tk.X, padx=6, pady=(6, 2))
-        self._wb = tk.Button(_tog, text="WRITE", bg=ACCENT, fg="#000",
-            relief=tk.FLAT, font=("Courier New", 8, "bold"), pady=3, bd=0,
-            cursor="hand2", activeforeground="#000", activebackground=ACCENT,
+        self._wb = tk.Button(_tog, text="WRITE", bg=HC_BOR, fg="#FFFFFF",
+            relief=tk.FLAT, font=("Courier", 8, "bold"), pady=3, bd=1,
+            cursor="hand2", activeforeground="#FFFFFF", activebackground=HC_DIM,
             command=lambda: self._game_toggle_mode("write"))
         self._wb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
-        self._gb = tk.Button(_tog, text="GAME", bg=BG3, fg=DIM,
-            relief=tk.FLAT, font=("Courier New", 8, "bold"), pady=3, bd=0,
-            cursor="hand2", activeforeground=GAME_ACC, activebackground=BG3,
+        self._gb = tk.Button(_tog, text="GAME", bg=HC_BG, fg=HC_DIM,
+            relief=tk.FLAT, font=("Courier", 8, "bold"), pady=3, bd=1,
+            cursor="hand2", activeforeground="#FFFFFF", activebackground=HC_BOR,
             command=lambda: self._game_toggle_mode("game"))
         self._gb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
 
@@ -1057,7 +1093,8 @@ class ConstrainedApp:
         self._build_sidebar_contents()
         self._build_game_sidebar()
 
-        main = tk.Frame(self.editor_frame, bg=BG)
+        self._editor_main = tk.Frame(self.editor_frame, bg=BG)
+        main = self._editor_main
         main.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         ctx = tk.Frame(main, bg=BG2)
@@ -1073,7 +1110,7 @@ class ConstrainedApp:
             ("↓ Export", self._export_txt,    BLUE),
         ]:
             tk.Button(btn_row, text=txt, fg=col, bg=BG2, relief=tk.FLAT,
-                      font=("Courier New", 8), padx=10, pady=5,
+                      font=("Courier", 8), padx=10, pady=5,
                       cursor="hand2", bd=0, activebackground=BG2,
                       command=cmd).pack(side=tk.LEFT, padx=2)
 
@@ -1082,19 +1119,26 @@ class ConstrainedApp:
         self.warn_widgets: list = []
 
         self.text_widget = tk.Text(
-            main, bg=BG, fg=TEXT, insertbackground=ACCENT,
-            relief=tk.FLAT, font=("Courier New", 15), padx=48, pady=36,
+            main, bg=BG, fg=TEXT, insertbackground=HC_BOR,
+            relief=tk.FLAT, font=("Courier", 15), padx=48, pady=36,
             wrap=tk.WORD, spacing1=3, spacing3=3,
-            selectbackground="#252530", selectforeground=TEXT,
+            selectbackground=HC_BOR, selectforeground="#FFFFFF",
         )
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         self.text_widget.bind('<KeyRelease>', self._on_key_release)
         self.text_widget.bind('<KeyPress>',   self._on_key_press)
 
+        # Countdown overlay (hidden until countdown starts)
+        self._countdown_overlay = tk.Label(
+            main, text="", fg=HC_FG, bg=HC_BG,
+            font=("Courier", 72, "bold"),
+            highlightthickness=2, highlightbackground=HC_BOR,
+            padx=24, pady=12)
+
         self.viol_frame = tk.Frame(main, bg=BG2)
         self.viol_text  = tk.Text(
             self.viol_frame, bg=BG2, fg=RED,
-            font=("Courier New", 9), height=5, relief=tk.FLAT,
+            font=("Courier", 9), height=5, relief=tk.FLAT,
             padx=14, pady=6, state=tk.DISABLED
         )
         self.viol_text.pack(fill=tk.X)
@@ -1134,10 +1178,10 @@ class ConstrainedApp:
             row = tk.Frame(sb, bg=BG2)
             row.pack(fill=tk.X, padx=12, pady=2)
             tk.Label(row, text=label, fg=DIM2, bg=BG2,
-                     font=("Courier New", 8)).pack(side=tk.LEFT)
+                     font=("Courier", 8)).pack(side=tk.LEFT)
             sv  = tk.StringVar(value="0")
             lbl = tk.Label(row, textvariable=sv, fg=DIM, bg=BG2,
-                           font=("Courier New", 12))
+                           font=("Courier", 12))
             lbl.pack(side=tk.RIGHT)
             self.stat_vars[key] = (sv, lbl)
 
@@ -1150,10 +1194,10 @@ class ConstrainedApp:
         self.next_ltr_var = tk.StringVar(value="")
         self.next_ltr_lbl = tk.Label(sb, textvariable=self.next_ltr_var,
                                       fg=ACCENT, bg=BG2,
-                                      font=("Courier New", 32, "bold"))
+                                      font=("Courier", 32, "bold"))
         self.next_ltr_lbl.pack(pady=(2, 0))
         self.next_ltr_sub = tk.Label(sb, text="", fg=DIM2, bg=BG2,
-                                      font=("Courier New", 8))
+                                      font=("Courier", 8))
         self.next_ltr_sub.pack()
 
         # Pangram
@@ -1161,7 +1205,7 @@ class ConstrainedApp:
         self._sb_label(sb, "PANGRAM — MISSING")
         self.pang_var = tk.StringVar(value="")
         tk.Label(sb, textvariable=self.pang_var, fg=AMBER, bg=BG2,
-                 font=("Courier New", 10), wraplength=198,
+                 font=("Courier", 10), wraplength=198,
                  justify=tk.LEFT).pack(anchor=tk.W, padx=12, pady=(0, 4))
 
         # Language
@@ -1176,10 +1220,10 @@ class ConstrainedApp:
             row = tk.Frame(sb, bg=BG2)
             row.pack(fill=tk.X, padx=12, pady=1)
             tk.Label(row, text=label, fg=DIM2, bg=BG2,
-                     font=("Courier New", 8)).pack(side=tk.LEFT)
+                     font=("Courier", 8)).pack(side=tk.LEFT)
             sv  = tk.StringVar(value="—")
             lbl = tk.Label(row, textvariable=sv, fg=DIM, bg=BG2,
-                           font=("Courier New", 10))
+                           font=("Courier", 10))
             lbl.pack(side=tk.RIGHT)
             self.lang_vars[key] = (sv, lbl)
 
@@ -1189,7 +1233,7 @@ class ConstrainedApp:
         if not WORDLIST:          notes.append("wordlist.txt missing")
         for n in notes:
             tk.Label(sb, text=n, fg=DIM2, bg=BG2,
-                     font=("Courier New", 7),
+                     font=("Courier", 7),
                      justify=tk.CENTER).pack(pady=1)
 
         self._sb_canvas.configure(
@@ -1198,83 +1242,130 @@ class ConstrainedApp:
     # ── GAME SIDEBAR ──────────────────────────────────────────────
 
     def _build_game_sidebar(self):
-        """Build the game panel inside _game_sb_frame."""
+        """Build the game panel inside _game_sb_frame (HyperCard / System 7 style)."""
         sb = self._game_sb_frame
+        sb.configure(bg=HC_BG)
 
-        def glabel(parent, text, fg=None, font=None):
-            kw = dict(fg=fg or DIM2, bg=GAME_BG,
-                      font=font or ("Courier New", 8))
-            tk.Label(parent, text=text, **kw).pack(
-                anchor=tk.W, padx=10, pady=(5, 1))
+        # ── Title stripe (alternating lines + "TETHER // GAME MODE") ─
+        self._gc_title_canvas = tk.Canvas(sb, height=28, bg=HC_BG,
+                                          highlightthickness=0)
+        self._gc_title_canvas.pack(fill=tk.X)
 
-        def gdiv():
-            tk.Frame(sb, bg="#1e1a2e", height=1).pack(
-                fill=tk.X, padx=6, pady=4)
+        def _draw_title_stripe(e=None):
+            c = self._gc_title_canvas
+            c.delete("all")
+            w = c.winfo_width() or 222
+            for y in range(0, 28, 2):
+                c.create_rectangle(0, y, w, y + 1,
+                                   fill="#000000", outline="")
+            c.create_text(w // 2, 14, text="TETHER  //  GAME MODE",
+                          fill="#FFFFFF", font=("Courier", 9, "bold"))
+
+        self._gc_title_canvas.bind("<Configure>", _draw_title_stripe)
+        sb.after(80, _draw_title_stripe)
 
         # ── Sub-mode toggle ──────────────────────────────────────
-        sm = tk.Frame(sb, bg=GAME_BG)
+        sm = tk.Frame(sb, bg=HC_BG)
         sm.pack(fill=tk.X, padx=6, pady=(6, 2))
         self._ch_btn = tk.Button(sm, text="CHALLENGE",
-            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
-            font=("Courier New", 8, "bold"), pady=3, bd=0, cursor="hand2",
-            activeforeground="#fff", activebackground=GAME_ACC,
+            bg=HC_BOR, fg="#FFFFFF", relief=tk.FLAT,
+            font=("Courier", 8, "bold"), pady=3, bd=1,
+            cursor="hand2", activeforeground="#FFFFFF",
+            activebackground=HC_BOR,
             command=lambda: self._game_set_submode("challenge"))
-        self._ch_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,1))
+        self._ch_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
         self._sa_btn = tk.Button(sm, text="SCORE ATTACK",
-            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
-            font=("Courier New", 8, "bold"), pady=3, bd=0, cursor="hand2",
-            activeforeground=GAME_ACC, activebackground=GAME_BG2,
+            bg=HC_BG, fg=HC_DIM, relief=tk.FLAT,
+            font=("Courier", 8, "bold"), pady=3, bd=1,
+            cursor="hand2", activeforeground=HC_BOR,
+            activebackground=HC_BG,
             command=lambda: self._game_set_submode("scoreattack"))
-        self._sa_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1,0))
+        self._sa_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
 
         # ── Difficulty ───────────────────────────────────────────
-        gdiv()
-        glabel(sb, "DIFFICULTY")
-        diff_row = tk.Frame(sb, bg=GAME_BG)
-        diff_row.pack(fill=tk.X, padx=6, pady=(2, 2))
+        gdiv_frame = tk.Frame(sb, bg=HC_BOR, height=1)
+        gdiv_frame.pack(fill=tk.X, padx=0, pady=2)
+
+        diff_sect = tk.Frame(sb, bg=HC_BG)
+        diff_sect.pack(fill=tk.X, padx=6, pady=2)
+        tk.Label(diff_sect, text="DIFFICULTY", fg=HC_DIM, bg=HC_BG,
+                 font=("Courier", 8, "bold")).pack(anchor=tk.W)
+        diff_row = tk.Frame(diff_sect, bg=HC_BG)
+        diff_row.pack(fill=tk.X)
         self._diff_btns = {}
-        for d, label in [("easy","Easy"),("medium","Med"),("hard","Hard")]:
+        for d, label in [("easy", "Easy"), ("medium", "Med"), ("hard", "Hard")]:
             b = tk.Button(diff_row, text=label,
-                bg=GAME_ACC if d == "medium" else GAME_BG2,
-                fg="#fff" if d == "medium" else DIM,
-                relief=tk.FLAT, font=("Courier New", 8), pady=2, bd=0,
+                bg=HC_BOR if d == "medium" else HC_BG,
+                fg="#FFFFFF" if d == "medium" else HC_DIM,
+                relief=tk.FLAT, font=("Courier", 8), pady=2, bd=1,
                 cursor="hand2",
+                activebackground=HC_BOR, activeforeground="#FFFFFF",
                 command=lambda d=d: self._game_set_difficulty(d))
             b.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
             self._diff_btns[d] = b
 
         # ── Challenge list ────────────────────────────────────────
-        self._ch_list_frame = tk.Frame(sb, bg=GAME_BG)
+        self._ch_list_frame = tk.Frame(sb, bg=HC_BG)
         self._ch_list_frame.pack(fill=tk.X)
-        gdiv()
-        glabel(self._ch_list_frame, "CHALLENGES")
+
+        div2 = tk.Frame(self._ch_list_frame, bg=HC_BOR, height=1)
+        div2.pack(fill=tk.X, pady=2)
+
+        ch_hdr = tk.Frame(self._ch_list_frame, bg=HC_BOR)
+        ch_hdr.pack(fill=tk.X)
+        tk.Label(ch_hdr, text="CHALLENGES", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.W,
+                 padx=6).pack(fill=tk.X, pady=2)
+
         self._ch_rows = {}
-        self._ch_sub_rows = {}   # sub-label for locked prerequisite hint
+        self._ch_sub_rows = {}
+
+        # Daily challenge row (always first, always unlocked, inverted)
+        daily_row = tk.Frame(self._ch_list_frame, bg=HC_BOR, cursor="hand2")
+        daily_row.pack(fill=tk.X, pady=(0, 1))
+        daily_lbl = tk.Label(daily_row,
+            text="⬛  DAILY",
+            fg="#FFFFFF", bg=HC_BOR,
+            font=("Courier", 8, "bold"), anchor=tk.W,
+            cursor="hand2")
+        daily_lbl.pack(fill=tk.X, padx=6, pady=3)
+        for w in (daily_row, daily_lbl):
+            w.bind("<Button-1>", lambda e: self._game_select_daily())
+        self._daily_row = daily_row
+        self._daily_lbl = daily_lbl
+
         for ch in GAME_CHALLENGES:
             locked = ch['id'] not in self._game_unlocked
             req_name = ""
             if locked and ch.get('requires'):
-                req_ch = next((c for c in GAME_CHALLENGES if c['id'] == ch['requires']), None)
+                req_ch = next((c for c in GAME_CHALLENGES
+                               if c['id'] == ch['requires']), None)
                 req_name = req_ch['name'] if req_ch else ch['requires']
-            row = tk.Frame(self._ch_list_frame, bg=GAME_BG,
-                           cursor="" if locked else "hand2")
-            row.pack(fill=tk.X)
+
+            row_bg = "#CCCCCC" if locked else HC_BG
+            row = tk.Frame(self._ch_list_frame, bg=row_bg,
+                           cursor="" if locked else "hand2",
+                           highlightthickness=1,
+                           highlightbackground=HC_BOR)
+            row.pack(fill=tk.X, pady=1)
             dot = tk.Label(row, text="🔒" if locked else "▪",
-                           fg=DIM2 if locked else GAME_ACC, bg=GAME_BG,
-                           font=("Courier New", 8), width=2)
-            dot.pack(side=tk.LEFT, padx=(8, 0), anchor=tk.N, pady=4)
-            name_col = tk.Frame(row, bg=GAME_BG)
-            name_col.pack(side=tk.LEFT, padx=4, pady=2, fill=tk.X, expand=True)
+                           fg=HC_DIM if locked else HC_FG, bg=row_bg,
+                           font=("Courier", 8), width=2)
+            dot.pack(side=tk.LEFT, padx=(4, 0), anchor=tk.N, pady=3)
+            name_col = tk.Frame(row, bg=row_bg)
+            name_col.pack(side=tk.LEFT, padx=2, pady=2,
+                          fill=tk.X, expand=True)
             lbl = tk.Label(name_col, text=ch['name'],
-                           fg=DIM2 if locked else DIM, bg=GAME_BG,
-                           font=SERIF_SM, anchor=tk.W,
+                           fg=HC_DIM if locked else HC_FG, bg=row_bg,
+                           font=("Courier", 9), anchor=tk.W,
                            cursor="" if locked else "hand2")
             lbl.pack(anchor=tk.W)
             sub_lbl = None
             if locked and req_name:
-                sub_lbl = tk.Label(name_col, text=f"beat {req_name} first",
-                                   fg=DIM2, bg=GAME_BG,
-                                   font=("Courier New", 7), anchor=tk.W)
+                sub_lbl = tk.Label(name_col,
+                    text=f"beat {req_name} first",
+                    fg=HC_DIM, bg=row_bg,
+                    font=("Courier", 7), anchor=tk.W)
                 sub_lbl.pack(anchor=tk.W)
             if not locked:
                 for w in (row, dot, name_col, lbl):
@@ -1284,286 +1375,348 @@ class ConstrainedApp:
             self._ch_sub_rows[ch['id']] = sub_lbl
 
         # ── Score Attack preset list ──────────────────────────────
-        self._sa_list_frame = tk.Frame(sb, bg=GAME_BG)
-        glabel(self._sa_list_frame, "PRESET")
+        self._sa_list_frame = tk.Frame(sb, bg=HC_BG)
+        sa_hdr = tk.Frame(self._sa_list_frame, bg=HC_BOR)
+        sa_hdr.pack(fill=tk.X)
+        tk.Label(sa_hdr, text="PRESETS", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.W,
+                 padx=6).pack(fill=tk.X, pady=2)
+
         self._sa_rows = {}
         for p in GAME_SA_PRESETS:
-            row = tk.Frame(self._sa_list_frame, bg=GAME_BG, cursor="hand2")
-            row.pack(fill=tk.X)
-            dot = tk.Label(row, text="▪", fg=BLUE, bg=GAME_BG,
-                           font=("Courier New", 8), width=2)
-            dot.pack(side=tk.LEFT, padx=(8, 0))
-            lbl = tk.Label(row, text=p['name'], fg=DIM, bg=GAME_BG,
-                           font=SERIF_SM, anchor=tk.W, cursor="hand2")
-            lbl.pack(side=tk.LEFT, padx=4, pady=4, fill=tk.X, expand=True)
+            row = tk.Frame(self._sa_list_frame, bg=HC_BG,
+                           cursor="hand2",
+                           highlightthickness=1,
+                           highlightbackground=HC_BOR)
+            row.pack(fill=tk.X, pady=1)
+            dot = tk.Label(row, text="▪", fg=HC_FG, bg=HC_BG,
+                           font=("Courier", 8), width=2)
+            dot.pack(side=tk.LEFT, padx=(4, 0))
+            lbl = tk.Label(row, text=p['name'], fg=HC_FG, bg=HC_BG,
+                           font=("Courier", 9), anchor=tk.W, cursor="hand2")
+            lbl.pack(side=tk.LEFT, padx=2, pady=4,
+                     fill=tk.X, expand=True)
             for w in (row, dot, lbl):
                 w.bind("<Button-1>",
                     lambda e, pr=p: self._game_select_sa_preset(pr))
             self._sa_rows[p['id']] = (row, lbl, dot)
 
         # SA duration selector (inside sa_list_frame)
-        self._sa_dur_frame = tk.Frame(self._sa_list_frame, bg=GAME_BG)
-        self._sa_dur_frame.pack(fill=tk.X, padx=8, pady=(4, 2))
-        glabel(self._sa_dur_frame, "DURATION")
-        dur_row = tk.Frame(self._sa_dur_frame, bg=GAME_BG)
+        self._sa_dur_frame = tk.Frame(self._sa_list_frame, bg=HC_BG)
+        self._sa_dur_frame.pack(fill=tk.X, padx=6, pady=(4, 2))
+        tk.Label(self._sa_dur_frame, text="DURATION", fg=HC_DIM, bg=HC_BG,
+                 font=("Courier", 8, "bold")).pack(anchor=tk.W)
+        dur_row = tk.Frame(self._sa_dur_frame, bg=HC_BG)
         dur_row.pack(fill=tk.X)
         self._sa_dur_btns = {}
-        for secs, label in [(120,"2m"),(300,"5m"),(600,"10m"),(0,"∞")]:
+        for secs, label in [(120, "2m"), (300, "5m"), (600, "10m"), (0, "∞")]:
             b = tk.Button(dur_row, text=label,
-                bg=GAME_ACC if secs == 300 else GAME_BG2,
-                fg="#fff" if secs == 300 else DIM,
-                relief=tk.FLAT, font=("Courier New", 8), pady=2, bd=0,
+                bg=HC_BOR if secs == 300 else HC_BG,
+                fg="#FFFFFF" if secs == 300 else HC_DIM,
+                relief=tk.FLAT, font=("Courier", 8), pady=2, bd=1,
                 cursor="hand2",
+                activebackground=HC_BOR, activeforeground="#FFFFFF",
                 command=lambda s=secs: self._game_set_duration(s))
             b.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
             self._sa_dur_btns[secs] = b
 
-        # ── Challenge info panel (shown when a challenge is selected) ────
-        self._game_ch_info_frame = tk.Frame(sb, bg=GAME_BG)
-        # Back button — returns to the challenge list
+        # ── Challenge info panel ──────────────────────────────────
+        self._game_ch_info_frame = tk.Frame(sb, bg=HC_BG)
         tk.Button(self._game_ch_info_frame, text="← Back",
-            bg=GAME_BG, fg=DIM, relief=tk.FLAT,
-            font=("Courier New", 8), pady=3, bd=0, cursor="hand2",
-            activeforeground=GAME_ACC, activebackground=GAME_BG,
-            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4,0))
+            bg=HC_BG, fg=HC_DIM, relief=tk.FLAT,
+            font=("Courier", 8), pady=3, bd=0, cursor="hand2",
+            activeforeground=HC_FG, activebackground=HC_BG,
+            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4, 0))
         self._ch_info_name_var = tk.StringVar(value="")
         tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_name_var,
-            fg="#fff", bg=GAME_BG, font=("Courier New", 11, "bold"),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,2))
+            fg=HC_FG, bg=HC_BG, font=("Courier", 11, "bold"),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(4, 2))
         self._ch_info_desc_var = tk.StringVar(value="")
         tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_desc_var,
-            fg=DIM, bg=GAME_BG, font=("Courier New", 8),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(0,4))
-        tk.Frame(self._game_ch_info_frame, bg="#1e1a2e", height=1).pack(
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(0, 4))
+        tk.Frame(self._game_ch_info_frame, bg=HC_BOR, height=1).pack(
             fill=tk.X, padx=6, pady=2)
         self._ch_info_constr_var = tk.StringVar(value="")
         tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_constr_var,
-            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,0))
+            fg=HC_FG, bg=HC_BG, font=("Courier", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(4, 0))
         self._ch_info_goal_var = tk.StringVar(value="")
         tk.Label(self._game_ch_info_frame, textvariable=self._ch_info_goal_var,
-            fg=DIM2, bg=GAME_BG, font=("Courier New", 8)).pack(
-            anchor=tk.W, padx=10, pady=(2,4))
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 8)).pack(
+            anchor=tk.W, padx=8, pady=(2, 4))
         self._game_ch_start_btn = tk.Button(self._game_ch_info_frame,
             text="▶  START CHALLENGE",
-            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
-            font=("Courier New", 10, "bold"), pady=6, bd=0,
-            cursor="hand2", activeforeground="#fff",
-            activebackground="#6d28d9",
+            bg=HC_BOR, fg="#FFFFFF", relief=tk.FLAT,
+            font=("Courier", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#FFFFFF",
+            activebackground=HC_DIM,
             command=self._game_start_countdown)
-        self._game_ch_start_btn.pack(fill=tk.X, padx=8, pady=(4,8))
+        self._game_ch_start_btn.pack(fill=tk.X, padx=8, pady=(4, 8))
 
-        # ── Score Attack info panel (shown when a preset is selected) ────
-        self._game_sa_info_frame = tk.Frame(sb, bg=GAME_BG)
+        # ── Score Attack info panel ───────────────────────────────
+        self._game_sa_info_frame = tk.Frame(sb, bg=HC_BG)
         tk.Button(self._game_sa_info_frame, text="← Back",
-            bg=GAME_BG, fg=DIM, relief=tk.FLAT,
-            font=("Courier New", 8), pady=3, bd=0, cursor="hand2",
-            activeforeground=GAME_ACC, activebackground=GAME_BG,
-            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4,0))
+            bg=HC_BG, fg=HC_DIM, relief=tk.FLAT,
+            font=("Courier", 8), pady=3, bd=0, cursor="hand2",
+            activeforeground=HC_FG, activebackground=HC_BG,
+            command=self._game_back_to_list).pack(anchor=tk.W, padx=6, pady=(4, 0))
         self._sa_info_name_var = tk.StringVar(value="")
         tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_name_var,
-            fg="#fff", bg=GAME_BG, font=("Courier New", 11, "bold"),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,2))
+            fg=HC_FG, bg=HC_BG, font=("Courier", 11, "bold"),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(4, 2))
         self._sa_info_desc_var = tk.StringVar(value="")
         tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_desc_var,
-            fg=DIM, bg=GAME_BG, font=("Courier New", 8),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(0,4))
-        tk.Frame(self._game_sa_info_frame, bg="#1e1a2e", height=1).pack(
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(0, 4))
+        tk.Frame(self._game_sa_info_frame, bg=HC_BOR, height=1).pack(
             fill=tk.X, padx=6, pady=2)
         self._sa_info_constr_var = tk.StringVar(value="")
         tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_constr_var,
-            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8),
-            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=10, pady=(4,0))
+            fg=HC_FG, bg=HC_BG, font=("Courier", 8),
+            wraplength=200, justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(4, 0))
         self._sa_info_dur_var = tk.StringVar(value="")
         tk.Label(self._game_sa_info_frame, textvariable=self._sa_info_dur_var,
-            fg=DIM2, bg=GAME_BG, font=("Courier New", 8)).pack(
-            anchor=tk.W, padx=10, pady=(2,4))
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 8)).pack(
+            anchor=tk.W, padx=8, pady=(2, 4))
         self._game_sa_start_btn = tk.Button(self._game_sa_info_frame,
             text="▶  START",
-            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
-            font=("Courier New", 10, "bold"), pady=6, bd=0,
-            cursor="hand2", activeforeground="#fff",
-            activebackground="#6d28d9",
+            bg=HC_BOR, fg="#FFFFFF", relief=tk.FLAT,
+            font=("Courier", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#FFFFFF",
+            activebackground=HC_DIM,
             command=self._game_start_countdown)
-        self._game_sa_start_btn.pack(fill=tk.X, padx=8, pady=(4,8))
+        self._game_sa_start_btn.pack(fill=tk.X, padx=8, pady=(4, 8))
 
-        # ── Start button (Score Attack, legacy — kept hidden, used for countdown anim fallback) ──
-        self._game_pre_start_div = tk.Frame(sb, bg="#1e1a2e", height=1)
-        # not packed — _game_lb_div is the layout anchor
+        # Legacy start button (hidden)
+        self._game_pre_start_div = tk.Frame(sb, bg=HC_BOR, height=1)
         self._game_start_btn = tk.Button(sb, text="▶  START",
-            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
-            font=("Courier New", 10, "bold"), pady=6, bd=0,
-            cursor="hand2", activeforeground="#fff",
-            activebackground="#6d28d9",
+            bg=HC_BOR, fg="#FFFFFF", relief=tk.FLAT,
+            font=("Courier", 10, "bold"), pady=6, bd=0,
+            cursor="hand2", activeforeground="#FFFFFF",
+            activebackground=HC_DIM,
             command=self._game_start_countdown)
         self._game_start_btn.pack(fill=tk.X, padx=8, pady=4)
 
-        # ── Live stats (hidden until active) ─────────────────────
-        self._game_live_frame = tk.Frame(sb, bg=GAME_BG)
+        # ── Live stats ────────────────────────────────────────────
+        self._game_live_frame = tk.Frame(sb, bg=HC_BG)
 
-        gdiv2 = lambda: tk.Frame(self._game_live_frame,
-            bg="#1e1a2e", height=1).pack(fill=tk.X, padx=6, pady=3)
-
-        # 1. Challenge/preset name + constraint summary
+        # Mode name header
         self._game_live_mode_var = tk.StringVar(value="")
-        tk.Label(self._game_live_frame, textvariable=self._game_live_mode_var,
-            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 9, "bold"),
-            anchor=tk.CENTER).pack(fill=tk.X, padx=10, pady=(6,0))
+        _mode_hdr = tk.Frame(self._game_live_frame, bg=HC_BOR)
+        _mode_hdr.pack(fill=tk.X, pady=(0, 2))
+        tk.Label(_mode_hdr, textvariable=self._game_live_mode_var,
+            fg="#FFFFFF", bg=HC_BOR, font=("Courier", 9, "bold"),
+            anchor=tk.CENTER).pack(fill=tk.X, pady=2)
         self._game_live_constr_var = tk.StringVar(value="")
         tk.Label(self._game_live_frame, textvariable=self._game_live_constr_var,
-            fg=DIM2, bg=GAME_BG, font=("Courier New", 7),
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 7),
             wraplength=190, justify=tk.CENTER, anchor=tk.CENTER).pack(
-            fill=tk.X, padx=10, pady=(0,2))
-        gdiv2()
+            fill=tk.X, padx=8, pady=(0, 4))
 
-        # 2. SCORE — huge and centered
-        score_section = tk.Frame(self._game_live_frame, bg=GAME_BG)
-        score_section.pack(fill=tk.X, pady=(4, 0))
+        # SCORE field box
+        _score_outer = tk.Frame(self._game_live_frame, bg=HC_BOR, padx=1, pady=1)
+        _score_outer.pack(fill=tk.X, padx=6, pady=(0, 2))
+        _score_inner = tk.Frame(_score_outer, bg=HC_BG)
+        _score_inner.pack(fill=tk.BOTH, expand=True)
+        _score_hdr = tk.Frame(_score_inner, bg=HC_BOR)
+        _score_hdr.pack(fill=tk.X)
+        tk.Label(_score_hdr, text="SCORE", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.CENTER).pack(
+                 fill=tk.X, pady=1)
         self._game_score_var = tk.StringVar(value="0")
-        self._game_score_lbl = tk.Label(score_section,
+        self._game_score_lbl = tk.Label(_score_inner,
             textvariable=self._game_score_var,
-            fg="#fff", bg=GAME_BG, font=("Courier New", 36, "bold"),
+            fg=HC_FG, bg=HC_BG, font=("Courier", 36, "bold"),
             anchor=tk.CENTER)
-        self._game_score_lbl.pack(fill=tk.X)
-        tk.Label(score_section, text="pts", fg=GAME_ACC, bg=GAME_BG,
-                 font=("Courier New", 9), anchor=tk.CENTER).pack()
+        self._game_score_lbl.pack(fill=tk.X, pady=2)
 
-        # 3. Per-word feedback label
+        # PB ghost marker (below score)
+        self._game_pb_var = tk.StringVar(value="")
+        self._game_pb_lbl = tk.Label(_score_inner,
+            textvariable=self._game_pb_var,
+            fg=HC_DIM, bg=HC_BG, font=("Courier", 8),
+            anchor=tk.CENTER)
+        self._game_pb_lbl.pack(fill=tk.X, pady=(0, 2))
+
+        # Per-word feedback
         self._game_feedback_var = tk.StringVar(value="")
         self._game_feedback_lbl = tk.Label(self._game_live_frame,
             textvariable=self._game_feedback_var,
-            fg=GREEN, bg=GAME_BG, font=("Courier New", 11, "bold"),
+            fg=HC_FG, bg=HC_BG, font=("Courier", 11, "bold"),
             anchor=tk.CENTER)
-        self._game_feedback_lbl.pack(fill=tk.X, padx=10, pady=(2, 0))
+        self._game_feedback_lbl.pack(fill=tk.X, padx=8, pady=2)
+        self._game_feedback_job = None
 
-        gdiv2()
+        # STREAK field box
+        _streak_outer = tk.Frame(self._game_live_frame, bg=HC_BOR, padx=1, pady=1)
+        _streak_outer.pack(fill=tk.X, padx=6, pady=(0, 2))
+        _streak_inner = tk.Frame(_streak_outer, bg=HC_BG)
+        _streak_inner.pack(fill=tk.BOTH, expand=True)
+        _streak_hdr = tk.Frame(_streak_inner, bg=HC_BOR)
+        _streak_hdr.pack(fill=tk.X)
+        tk.Label(_streak_hdr, text="STREAK", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.CENTER).pack(
+                 fill=tk.X, pady=1)
+        self._game_streak_lbl = tk.Label(_streak_inner,
+            text="0  ×1.0",
+            fg=HC_FG, bg=HC_BG,
+            font=("Courier", 16, "bold"), anchor=tk.CENTER)
+        self._game_streak_lbl.pack(fill=tk.X, pady=4)
+        # Store references for flash effect
+        self._streak_inner_frame = _streak_inner
+        self._streak_hdr_frame = _streak_hdr
 
-        # 4. Streak + multiplier — combined, large, emotionally central
-        self._game_streak_lbl = tk.Label(self._game_live_frame,
-            text="streak: 0", fg=DIM, bg=GAME_BG,
-            font=("Courier New", 16, "bold"), anchor=tk.CENTER)
-        self._game_streak_lbl.pack(fill=tk.X, padx=10, pady=(4, 4))
-
-        gdiv2()
-
-        # 5. Timer
+        # TIMER field box
+        _timer_outer = tk.Frame(self._game_live_frame, bg=HC_BOR, padx=1, pady=1)
+        _timer_outer.pack(fill=tk.X, padx=6, pady=(0, 4))
+        _timer_inner = tk.Frame(_timer_outer, bg=HC_BG)
+        _timer_inner.pack(fill=tk.BOTH, expand=True)
+        _timer_hdr = tk.Frame(_timer_inner, bg=HC_BOR)
+        _timer_hdr.pack(fill=tk.X)
+        tk.Label(_timer_hdr, text="TIMER", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.CENTER).pack(
+                 fill=tk.X, pady=1)
         self._game_timer_var = tk.StringVar(value="0:00")
-        self._game_timer_lbl = tk.Label(self._game_live_frame,
+        self._game_timer_lbl = tk.Label(_timer_inner,
             textvariable=self._game_timer_var,
-            fg=DIM, bg=GAME_BG, font=("Courier New", 22, "bold"),
+            fg=HC_FG, bg=HC_BG, font=("Courier", 22, "bold"),
             anchor=tk.CENTER)
-        self._game_timer_lbl.pack(fill=tk.X, padx=10, pady=(2,0))
+        self._game_timer_lbl.pack(fill=tk.X, pady=2)
 
-        # 6. Word progress (challenge word goal)
-        self._game_prog_frame = tk.Frame(self._game_live_frame, bg=GAME_BG)
-        prog_inner = tk.Frame(self._game_prog_frame, bg=GAME_BG)
-        prog_inner.pack(fill=tk.X, padx=10)
-        tk.Label(prog_inner, text="words", fg=DIM2, bg=GAME_BG,
-                 font=("Courier New", 8)).pack(side=tk.LEFT)
+        # Word progress (challenge word goal)
+        self._game_prog_frame = tk.Frame(self._game_live_frame, bg=HC_BG)
+        prog_inner = tk.Frame(self._game_prog_frame, bg=HC_BG)
+        prog_inner.pack(fill=tk.X, padx=8)
+        tk.Label(prog_inner, text="words", fg=HC_DIM, bg=HC_BG,
+                 font=("Courier", 8)).pack(side=tk.LEFT)
         self._game_prog_var = tk.StringVar(value="")
         tk.Label(prog_inner, textvariable=self._game_prog_var,
-            fg=DIM, bg=GAME_BG, font=("Courier New", 11, "bold")).pack(side=tk.RIGHT)
+            fg=HC_FG, bg=HC_BG, font=("Courier", 11, "bold")).pack(side=tk.RIGHT)
         self._game_prog_bar = tk.Canvas(self._game_prog_frame,
-            bg="#1e1a2e", height=3, highlightthickness=0)
-        self._game_prog_bar.pack(fill=tk.X, padx=10, pady=(1,0))
+            bg=HC_BG, height=4,
+            highlightthickness=1, highlightbackground=HC_BOR)
+        self._game_prog_bar.pack(fill=tk.X, padx=8, pady=(1, 0))
 
-        gdiv2()
-
-        # 7. Stop button
+        # Stop button
         self._game_stop_btn = tk.Button(self._game_live_frame,
-            text="■  STOP", bg="#3a1a1a", fg=RED,
-            relief=tk.FLAT, font=("Courier New", 9, "bold"), pady=4, bd=0,
-            cursor="hand2", activeforeground=RED, activebackground="#4a1a1a",
+            text="■  STOP", bg=HC_BG, fg=HC_FG,
+            relief=tk.FLAT, font=("Courier", 9, "bold"), pady=4, bd=1,
+            cursor="hand2",
+            activeforeground="#FFFFFF", activebackground=HC_BOR,
             command=self._game_stop_session)
-        self._game_stop_btn.pack(fill=tk.X, padx=8, pady=(0, 4))
+        self._game_stop_btn.pack(fill=tk.X, padx=8, pady=(4, 4))
 
-        # ── Results panel (shown after a session ends) ────────────
-        self._game_results_frame = tk.Frame(sb, bg=GAME_BG)
+        # ── Results panel ─────────────────────────────────────────
+        self._game_results_frame = tk.Frame(sb, bg=HC_BG)
 
+        # Title
         self._game_res_title_var = tk.StringVar(value="")
-        tk.Label(self._game_results_frame, textvariable=self._game_res_title_var,
-            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8, "bold"),
-            anchor=tk.CENTER).pack(fill=tk.X, padx=10, pady=(8, 0))
+        _res_title_hdr = tk.Frame(self._game_results_frame, bg=HC_BOR)
+        _res_title_hdr.pack(fill=tk.X)
+        tk.Label(_res_title_hdr, textvariable=self._game_res_title_var,
+            fg="#FFFFFF", bg=HC_BOR, font=("Courier", 8, "bold"),
+            anchor=tk.CENTER).pack(fill=tk.X, pady=2)
 
+        # Stars
         self._game_res_stars_var = tk.StringVar(value="")
         self._game_res_stars_lbl = tk.Label(self._game_results_frame,
             textvariable=self._game_res_stars_var,
-            fg=AMBER, bg=GAME_BG, font=("Courier New", 28))
+            fg=HC_FG, bg=HC_BG, font=("Courier", 22))
         self._game_res_stars_lbl.pack(pady=(4, 0))
 
+        # Score field box
+        _res_score_outer = tk.Frame(self._game_results_frame, bg=HC_BOR,
+                                    padx=1, pady=1)
+        _res_score_outer.pack(fill=tk.X, padx=6, pady=4)
+        _res_score_inner = tk.Frame(_res_score_outer, bg=HC_BG)
+        _res_score_inner.pack(fill=tk.BOTH, expand=True)
+        _res_score_hdr = tk.Frame(_res_score_inner, bg=HC_BOR)
+        _res_score_hdr.pack(fill=tk.X)
+        tk.Label(_res_score_hdr, text="SCORE", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 9, "bold"), anchor=tk.CENTER).pack(
+                 fill=tk.X, pady=1)
         self._game_res_score_var = tk.StringVar(value="0")
-        tk.Label(self._game_results_frame, textvariable=self._game_res_score_var,
-            fg="#fff", bg=GAME_BG,
-            font=("Courier New", 36, "bold")).pack()
-        tk.Label(self._game_results_frame, text="pts",
-            fg=GAME_ACC, bg=GAME_BG, font=("Courier New", 8)).pack()
+        tk.Label(_res_score_inner, textvariable=self._game_res_score_var,
+            fg=HC_FG, bg=HC_BG,
+            font=("Courier", 36, "bold"),
+            anchor=tk.CENTER).pack(fill=tk.X, pady=2)
 
         # High score callout
         self._game_res_highscore_var = tk.StringVar(value="")
         self._game_res_highscore_lbl = tk.Label(self._game_results_frame,
             textvariable=self._game_res_highscore_var,
-            fg=AMBER, bg=GAME_BG, font=("Courier New", 9, "bold"),
+            fg=HC_FG, bg=HC_BG, font=("Courier", 9, "bold"),
             anchor=tk.CENTER)
-        # (packed conditionally in _game_show_results)
+        # packed conditionally in _game_show_results
 
-        tk.Frame(self._game_results_frame, bg="#1e1a2e", height=1).pack(
-            fill=tk.X, padx=6, pady=6)
+        # Sparkline canvas
+        self._game_res_sparkline = tk.Canvas(self._game_results_frame,
+            bg=HC_BG, height=60,
+            highlightthickness=1, highlightbackground=HC_BOR)
+        self._game_res_sparkline.pack(fill=tk.X, padx=6, pady=4)
 
-        res_stats = tk.Frame(self._game_results_frame, bg=GAME_BG)
-        res_stats.pack(fill=tk.X, padx=10)
+        tk.Frame(self._game_results_frame, bg=HC_BOR, height=1).pack(
+            fill=tk.X, padx=6, pady=4)
+
+        res_stats = tk.Frame(self._game_results_frame, bg=HC_BG)
+        res_stats.pack(fill=tk.X, padx=8)
         self._game_res_stat_vars = {}
-        for key, label in [("time","time"),("words","words"),
-                            ("comply","comply"),("streak","streak"),
-                            ("mult","best ×")]:
-            row = tk.Frame(res_stats, bg=GAME_BG)
+        for key, label in [("time", "time"), ("words", "words"),
+                            ("comply", "comply"), ("streak", "streak"),
+                            ("mult", "best ×")]:
+            row = tk.Frame(res_stats, bg=HC_BG)
             row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=label, fg=DIM2, bg=GAME_BG,
-                font=("Courier New", 8)).pack(side=tk.LEFT)
+            tk.Label(row, text=label, fg=HC_DIM, bg=HC_BG,
+                font=("Courier", 8)).pack(side=tk.LEFT)
             var = tk.StringVar(value="—")
             self._game_res_stat_vars[key] = var
-            tk.Label(row, textvariable=var, fg=DIM, bg=GAME_BG,
-                font=("Courier New", 10)).pack(side=tk.RIGHT)
+            tk.Label(row, textvariable=var, fg=HC_FG, bg=HC_BG,
+                font=("Courier", 10, "bold")).pack(side=tk.RIGHT)
 
-        tk.Frame(self._game_results_frame, bg="#1e1a2e", height=1).pack(
-            fill=tk.X, padx=6, pady=6)
+        tk.Frame(self._game_results_frame, bg=HC_BOR, height=1).pack(
+            fill=tk.X, padx=6, pady=4)
 
-        res_btns = tk.Frame(self._game_results_frame, bg=GAME_BG)
+        res_btns = tk.Frame(self._game_results_frame, bg=HC_BG)
         res_btns.pack(fill=tk.X, padx=8, pady=(0, 4))
         self._game_res_retry_btn = tk.Button(res_btns, text="↻ Retry",
-            bg=GAME_ACC, fg="#fff", relief=tk.FLAT,
-            font=("Courier New", 8, "bold"), pady=4, bd=0, cursor="hand2",
-            activeforeground="#fff", activebackground="#6d28d9")
-        self._game_res_retry_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,1))
+            bg=HC_BOR, fg="#FFFFFF", relief=tk.FLAT,
+            font=("Courier", 8, "bold"), pady=4, bd=0, cursor="hand2",
+            activeforeground="#FFFFFF", activebackground=HC_DIM)
+        self._game_res_retry_btn.pack(side=tk.LEFT, fill=tk.X,
+                                      expand=True, padx=(0, 1))
         self._game_res_next_btn = tk.Button(res_btns, text="→ Next",
-            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
-            font=("Courier New", 8), pady=4, bd=0, cursor="hand2",
-            activeforeground=GAME_ACC, activebackground=GAME_BG2)
-        self._game_res_next_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+            bg=HC_BG, fg=HC_DIM, relief=tk.FLAT,
+            font=("Courier", 8), pady=4, bd=1, cursor="hand2",
+            activeforeground=HC_FG, activebackground=HC_BG)
+        self._game_res_next_btn.pack(side=tk.LEFT, fill=tk.X,
+                                     expand=True, padx=1)
         self._game_res_back_btn = tk.Button(res_btns, text="← List",
-            bg=GAME_BG2, fg=DIM, relief=tk.FLAT,
-            font=("Courier New", 8), pady=4, bd=0, cursor="hand2",
-            activeforeground=GAME_ACC, activebackground=GAME_BG2)
-        self._game_res_back_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(1,0))
+            bg=HC_BG, fg=HC_DIM, relief=tk.FLAT,
+            font=("Courier", 8), pady=4, bd=1, cursor="hand2",
+            activeforeground=HC_FG, activebackground=HC_BG)
+        self._game_res_back_btn.pack(side=tk.LEFT, fill=tk.X,
+                                     expand=True, padx=(1, 0))
 
         # Unlock notification
         self._game_res_unlock_var = tk.StringVar(value="")
         self._game_res_unlock_lbl = tk.Label(self._game_results_frame,
             textvariable=self._game_res_unlock_var,
-            fg=GREEN, bg=GAME_BG, font=("Courier New", 9, "bold"),
+            fg=HC_FG, bg=HC_BG, font=("Courier", 9, "bold"),
             wraplength=200, justify=tk.CENTER, anchor=tk.CENTER)
-        # (packed conditionally in _game_show_results)
+        # packed conditionally
 
         # ── Leaderboard button ────────────────────────────────────
-        self._game_lb_div = tk.Frame(sb, bg="#1e1a2e", height=1)
-        self._game_lb_div.pack(fill=tk.X, padx=6, pady=4)
-        tk.Button(sb, text="📊  Scores", bg=GAME_BG2, fg=DIM,
-            relief=tk.FLAT, font=("Courier New", 8), pady=3, bd=0,
-            cursor="hand2", activeforeground=GAME_ACC,
-            activebackground=GAME_BG2,
+        self._game_lb_div = tk.Frame(sb, bg=HC_BOR, height=1)
+        self._game_lb_div.pack(fill=tk.X, padx=0, pady=4)
+        tk.Button(sb, text="📊  Scores", bg=HC_BG, fg=HC_DIM,
+            relief=tk.FLAT, font=("Courier", 8), pady=3, bd=1,
+            cursor="hand2",
+            activeforeground=HC_FG, activebackground=HC_BG,
             command=self._game_show_leaderboard).pack(
             fill=tk.X, padx=8, pady=(0, 6))
 
-        # Default state: challenge mode, list visible, SA start btn hidden
+        # Default state
         self._game_start_btn.pack_forget()
 
     # ── GAME MODE LOGIC ───────────────────────────────────────────
@@ -1575,17 +1728,19 @@ class ConstrainedApp:
         if mode == "game":
             self._write_sb_frame.pack_forget()
             self._game_sb_frame.pack(fill=tk.BOTH, expand=True)
-            self._wb.config(bg=BG3, fg=DIM,
-                activeforeground=DIM, activebackground=BG3)
-            self._gb.config(bg=GAME_ACC, fg="#fff",
-                activeforeground="#fff", activebackground=GAME_ACC)
+            self._mode_toggle_frame.config(bg=HC_BG)
+            self._wb.config(bg=HC_BG, fg=HC_DIM,
+                activeforeground=HC_DIM, activebackground=HC_BG)
+            self._gb.config(bg=HC_BOR, fg="#FFFFFF",
+                activeforeground="#FFFFFF", activebackground=HC_BOR)
         else:
             self._game_sb_frame.pack_forget()
             self._write_sb_frame.pack(fill=tk.BOTH, expand=True)
-            self._wb.config(bg=ACCENT, fg="#000",
-                activeforeground="#000", activebackground=ACCENT)
-            self._gb.config(bg=BG3, fg=DIM,
-                activeforeground=GAME_ACC, activebackground=BG3)
+            self._mode_toggle_frame.config(bg=BG2)
+            self._wb.config(bg=HC_BOR, fg="#FFFFFF",
+                activeforeground="#FFFFFF", activebackground=HC_DIM)
+            self._gb.config(bg=HC_BG, fg=HC_DIM,
+                activeforeground="#FFFFFF", activebackground=HC_BOR)
             if self._game_state == "active":
                 self._game_stop_session()
         self._update_context_bar()
@@ -1593,46 +1748,51 @@ class ConstrainedApp:
     def _game_set_submode(self, mode: str):
         self._game_submode = mode
         if mode == "challenge":
-            self._ch_btn.config(bg=GAME_ACC, fg="#fff")
-            self._sa_btn.config(bg=GAME_BG2, fg=DIM)
+            self._ch_btn.config(bg=HC_BOR, fg="#FFFFFF")
+            self._sa_btn.config(bg=HC_BG, fg=HC_DIM)
             self._sa_list_frame.pack_forget()
-            self._game_ch_info_frame.pack_forget()
+            self._game_sa_info_frame.pack_forget()
             self._game_results_frame.pack_forget()
             self._ch_list_frame.pack(fill=tk.X)
             self._game_start_btn.pack_forget()
         else:
-            self._sa_btn.config(bg=GAME_ACC, fg="#fff")
-            self._ch_btn.config(bg=GAME_BG2, fg=DIM)
+            self._sa_btn.config(bg=HC_BOR, fg="#FFFFFF")
+            self._ch_btn.config(bg=HC_BG, fg=HC_DIM)
             self._ch_list_frame.pack_forget()
             self._game_ch_info_frame.pack_forget()
             self._game_sa_info_frame.pack_forget()
             self._game_results_frame.pack_forget()
             self._game_start_btn.pack_forget()
-            self._sa_list_frame.pack(fill=tk.X, padx=6)
+            self._sa_list_frame.pack(fill=tk.X, padx=0)
 
     def _game_set_difficulty(self, d: str):
         self._game_difficulty = d
         for k, b in self._diff_btns.items():
-            b.config(bg=GAME_ACC if k == d else GAME_BG2,
-                     fg="#fff" if k == d else DIM)
+            b.config(bg=HC_BOR if k == d else HC_BG,
+                     fg="#FFFFFF" if k == d else HC_DIM)
 
     def _game_set_duration(self, secs: int):
         self._game_sa_duration = secs
         self._game_sa_timed    = secs > 0
         for k, b in self._sa_dur_btns.items():
-            b.config(bg=GAME_ACC if k == secs else GAME_BG2,
-                     fg="#fff" if k == secs else DIM)
+            b.config(bg=HC_BOR if k == secs else HC_BG,
+                     fg="#FFFFFF" if k == secs else HC_DIM)
 
     def _game_select_challenge(self, ch: dict):
         if ch['id'] not in self._game_unlocked:
             return
         self._game_challenge = ch
+        # Update highlights
         for cid, (row, lbl, dot) in self._ch_rows.items():
             active = cid == ch['id']
-            row.config(bg="#161226" if active else GAME_BG)
-            lbl.config(bg="#161226" if active else GAME_BG,
-                       fg="#fff" if active else DIM)
-            dot.config(bg="#161226" if active else GAME_BG)
+            bg = HC_BOR if active else HC_BG
+            fg = "#FFFFFF" if active else HC_FG
+            row.config(bg=bg, highlightbackground=HC_BOR)
+            lbl.config(bg=bg, fg=fg)
+            dot.config(bg=bg, fg="#FFFFFF" if active else HC_FG)
+        # Also deselect daily
+        self._daily_row.config(bg=HC_BOR)
+        self._daily_lbl.config(bg=HC_BOR)
         # Populate info panel
         self._ch_info_name_var.set(ch['name'])
         self._ch_info_desc_var.set(ch['description'])
@@ -1647,13 +1807,46 @@ class ConstrainedApp:
         self._ch_info_goal_var.set(
             f"goal: {goal_str}  ·  {fmt_time(ch['time_limit_seconds'])}")
         self._game_ch_start_btn.config(
-            text="▶  START CHALLENGE", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
-        # Hide list, show info panel in its place
+            text="▶  START CHALLENGE", bg=HC_BOR, fg="#FFFFFF", state=tk.NORMAL)
+        # Hide list, show info panel
         self._ch_list_frame.pack_forget()
         self._game_results_frame.pack_forget()
         if not self._game_ch_info_frame.winfo_ismapped():
-            self._game_ch_info_frame.pack(
-                fill=tk.X, before=self._game_lb_div)
+            self._game_ch_info_frame.pack(fill=tk.X, before=self._game_lb_div)
+        self._game_start_btn.pack_forget()
+
+    def _game_select_daily(self):
+        """Select the daily challenge."""
+        ch = get_daily_challenge()
+        self._game_challenge = ch
+        # Highlight daily row, deselect others
+        self._daily_row.config(bg=HC_BOR)
+        self._daily_lbl.config(bg=HC_BOR, fg="#FFFFFF",
+                               text=f"⬛  DAILY — {ch['name']}")
+        for cid, (row, lbl, dot) in self._ch_rows.items():
+            row.config(bg=HC_BG, highlightbackground=HC_BOR)
+            locked = cid not in self._game_unlocked
+            lbl.config(bg="#CCCCCC" if locked else HC_BG,
+                       fg=HC_DIM if locked else HC_FG)
+            dot.config(bg="#CCCCCC" if locked else HC_BG, fg=HC_DIM if locked else HC_FG)
+        # Populate info panel
+        self._ch_info_name_var.set(f"DAILY — {ch['name']}")
+        self._ch_info_desc_var.set(ch['description'])
+        self._ch_info_constr_var.set(constraints_summary(ch['constraints']))
+        goal = ch['goal']
+        goal_str = (f"{goal['target']} words" if goal['type'] == 'word_count'
+                    else f"{goal['target']} pts" if goal['type'] == 'score_target'
+                    else "timed survival")
+        date_str = get_daily_date()
+        self._ch_info_goal_var.set(
+            f"goal: {goal_str}  ·  {fmt_time(ch['time_limit_seconds'])}"
+            f"\ndate: {date_str}")
+        self._game_ch_start_btn.config(
+            text="▶  START DAILY", bg=HC_BOR, fg="#FFFFFF", state=tk.NORMAL)
+        self._ch_list_frame.pack_forget()
+        self._game_results_frame.pack_forget()
+        if not self._game_ch_info_frame.winfo_ismapped():
+            self._game_ch_info_frame.pack(fill=tk.X, before=self._game_lb_div)
         self._game_start_btn.pack_forget()
 
     def _game_refresh_challenge_list(self):
@@ -1665,18 +1858,19 @@ class ConstrainedApp:
             row, lbl, dot = self._ch_rows[ch['id']]
             sub_lbl = self._ch_sub_rows.get(ch['id'])
             locked = ch['id'] not in self._game_unlocked
-            lbl.config(fg=DIM2 if locked else DIM,
+            row_bg = "#CCCCCC" if locked else HC_BG
+            row.config(bg=row_bg, highlightbackground=HC_BOR)
+            lbl.config(fg=HC_DIM if locked else HC_FG,
+                       bg=row_bg,
                        cursor="" if locked else "hand2")
             dot.config(text="🔒" if locked else "▪",
-                       fg=DIM2 if locked else GAME_ACC)
-            row.config(cursor="" if locked else "hand2")
-            # Show/hide the sub-label (prereq hint)
+                       fg=HC_DIM if locked else HC_FG,
+                       bg=row_bg)
             if sub_lbl:
                 if locked:
                     sub_lbl.pack(anchor=tk.W)
                 else:
                     sub_lbl.pack_forget()
-            # Remove all button-1 bindings then re-add if unlocked
             name_col = lbl.master
             for w in (row, dot, name_col, lbl):
                 w.unbind("<Button-1>")
@@ -1687,15 +1881,14 @@ class ConstrainedApp:
 
     def _game_select_sa_preset(self, p: dict):
         self._game_sa_preset = p
-        # Set default duration
         dur = p.get('default_duration') or 0
         self._game_set_duration(dur)
         for pid, (row, lbl, dot) in self._sa_rows.items():
             active = pid == p['id']
-            row.config(bg="#0d1626" if active else GAME_BG)
-            lbl.config(bg="#0d1626" if active else GAME_BG,
-                       fg="#fff" if active else DIM)
-            dot.config(bg="#0d1626" if active else GAME_BG)
+            bg = HC_BOR if active else HC_BG
+            row.config(bg=bg, highlightbackground=HC_BOR)
+            lbl.config(bg=bg, fg="#FFFFFF" if active else HC_FG)
+            dot.config(bg=bg, fg="#FFFFFF" if active else HC_FG)
         # Populate info panel
         self._sa_info_name_var.set(p['name'])
         self._sa_info_desc_var.set(p['desc'])
@@ -1705,14 +1898,12 @@ class ConstrainedApp:
         self._sa_info_dur_var.set(
             f"duration: {fmt_time(dur_val)}" if dur_val else "duration: ∞")
         self._game_sa_start_btn.config(
-            text="▶  START", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
-        # Hide list, show info panel
+            text="▶  START", bg=HC_BOR, fg="#FFFFFF", state=tk.NORMAL)
         self._sa_list_frame.pack_forget()
         self._game_results_frame.pack_forget()
         self._game_start_btn.pack_forget()
         if not self._game_sa_info_frame.winfo_ismapped():
-            self._game_sa_info_frame.pack(
-                fill=tk.X, before=self._game_lb_div)
+            self._game_sa_info_frame.pack(fill=tk.X, before=self._game_lb_div)
 
     def _game_start_countdown(self):
         if self._game_state in ("countdown", "active"):
@@ -1736,15 +1927,46 @@ class ConstrainedApp:
 
     def _game_do_countdown(self, n: int):
         if self._game_state != "countdown":
+            self._game_hide_countdown_overlay()
             return
         btn = (self._game_ch_start_btn if self._game_submode == "challenge"
                else self._game_sa_start_btn)
         if n > 0:
-            btn.config(text=str(n), bg="#3a1a0a", fg=AMBER, state=tk.DISABLED)
+            btn.config(text=str(n), bg=HC_DIM, fg="#FFFFFF", state=tk.DISABLED)
+            # Show large overlay on editor
+            if n == 3:
+                self._game_show_countdown_overlay("3", inv=False)
+            elif n == 2:
+                self._game_show_countdown_overlay("2", inv=True)
+            elif n == 1:
+                self._game_show_countdown_overlay("1", inv=False, size=96)
             self.root.after(1000, lambda: self._game_do_countdown(n - 1))
         else:
-            btn.config(text="WRITING...", bg="#0d1a0d", fg=GREEN, state=tk.DISABLED)
+            btn.config(text="WRITING...", bg=HC_DIM, fg="#FFFFFF", state=tk.DISABLED)
+            self._game_show_countdown_overlay("GO", inv=False, size=64)
+            self.root.after(500, self._game_hide_countdown_overlay)
             self._game_activate_session()
+
+    def _game_show_countdown_overlay(self, text: str, inv: bool, size: int = 72):
+        """Show large countdown text centered over the editor area."""
+        if not hasattr(self, '_countdown_overlay'):
+            return
+        if inv:
+            self._countdown_overlay.config(
+                text=text, fg="#FFFFFF", bg="#000000",
+                font=("Courier", size, "bold"),
+                highlightthickness=0)
+        else:
+            self._countdown_overlay.config(
+                text=text, fg="#000000", bg="#FFFFFF",
+                font=("Courier", size, "bold"),
+                highlightthickness=2, highlightbackground="#000000")
+        self._countdown_overlay.place(relx=0.5, rely=0.5, anchor="center")
+        self._countdown_overlay.lift()
+
+    def _game_hide_countdown_overlay(self):
+        if hasattr(self, '_countdown_overlay'):
+            self._countdown_overlay.place_forget()
 
     def _game_activate_session(self):
         if self._game_submode == "challenge":
@@ -1763,6 +1985,9 @@ class ConstrainedApp:
         self._game_live_constr_var.set(constraints_summary(constr))
 
         self._game_scorer    = GameScorer(self._game_difficulty, constr, mult)
+        self._game_pb_score = self._get_best_score()
+        self._game_streak_tier_prev = 1.0
+        self._game_pb_var.set(f"PB: {self._game_pb_score}" if self._game_pb_score else "")
         self._game_state     = "active"
         self._game_start_mono = time.monotonic()
         self._game_elapsed   = 0
@@ -1789,17 +2014,17 @@ class ConstrainedApp:
                             fill=tk.X, before=self._game_lb_div)
                     self._game_ch_start_btn.config(
                         text="▶  START CHALLENGE",
-                        bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+                        bg=HC_BOR, fg="#FFFFFF", state=tk.NORMAL)
             else:
                 if self._game_sa_preset:
                     if not self._game_sa_info_frame.winfo_ismapped():
                         self._game_sa_info_frame.pack(
                             fill=tk.X, before=self._game_lb_div)
                     self._game_sa_start_btn.config(
-                        text="▶  START", bg=GAME_ACC, fg="#fff", state=tk.NORMAL)
+                        text="▶  START", bg=HC_BOR, fg="#FFFFFF", state=tk.NORMAL)
                 else:
                     if not self._sa_list_frame.winfo_ismapped():
-                        self._sa_list_frame.pack(fill=tk.X, padx=6)
+                        self._sa_list_frame.pack(fill=tk.X, padx=0)
 
     def _game_tick(self):
         if self._game_state != "active":
@@ -1819,51 +2044,73 @@ class ConstrainedApp:
         if not self._game_scorer:
             return
         sc = self._game_scorer
-        self._game_score_var.set(str(sc.int_score()))
 
-        mult = sc.streak_mult()
-        score_col = ("#e879f9" if mult >= 4.0 else
-                     RED        if mult >= 3.0 else
-                     "#f97316"  if mult >= 2.0 else
-                     AMBER      if mult >= 1.5 else "#fff")
-        self._game_score_lbl.config(fg=score_col)
+        # Score
+        score_now = sc.int_score()
+        self._game_score_var.set(str(score_now))
+        # Keep score label always black on white (HC style)
+        self._game_score_lbl.config(fg=HC_FG, bg=HC_BG)
 
-        # Combined streak + multiplier label
+        # PB ghost marker
+        if self._game_pb_score is not None:
+            if score_now > self._game_pb_score:
+                self._game_pb_var.set("★ NEW BEST")
+                self._game_pb_lbl.config(
+                    fg="#FFFFFF", bg=HC_BOR,
+                    font=("Courier", 8, "bold"))
+            else:
+                self._game_pb_var.set(f"PB: {self._game_pb_score}")
+                self._game_pb_lbl.config(
+                    fg=HC_DIM, bg=HC_BG,
+                    font=("Courier", 8))
+
+        # Streak
         streak = sc.streak
+        mult = sc.streak_mult()
         if streak > 0:
-            streak_text = f"🔥 {streak} STREAK  ×{mult:.1f}"
+            streak_text = f"🔥 {streak}  ×{mult:.1f}"
         else:
-            streak_text = f"streak: 0  ×{mult:.1f}"
-        streak_col = ("#e879f9" if mult >= 4.0 else
-                      RED        if mult >= 3.0 else
-                      "#f97316"  if mult >= 2.0 else
-                      AMBER      if mult >= 1.5 else DIM)
-        # Flash red on streak reset
-        if streak == 0 and self._game_streak_prev > 0:
-            self._game_streak_lbl.config(text=streak_text, fg=RED)
-            self.root.after(500, lambda: self._game_streak_lbl.config(fg=DIM)
-                            if self._game_scorer and self._game_scorer.streak == 0
-                            else None)
+            streak_text = f"0  ×1.0"
+        self._game_streak_lbl.config(text=streak_text)
+
+        # Streak milestone flash: check if tier increased
+        if mult > self._game_streak_tier_prev:
+            self._game_streak_tier_prev = mult
+            self._game_flash_streak()
+        elif streak == 0:
+            self._game_streak_tier_prev = 1.0
+            # Flash red on reset
+            if self._game_streak_prev > 0:
+                self._game_streak_lbl.config(fg="#FFFFFF", bg=HC_BOR)
+                self.root.after(200, lambda: (
+                    self._game_streak_lbl.config(fg=HC_FG, bg=HC_BG)
+                    if self._game_scorer and self._game_scorer.streak == 0
+                    else None))
+            self._game_streak_lbl.config(fg=HC_FG, bg=HC_BG)
         else:
-            self._game_streak_lbl.config(text=streak_text, fg=streak_col)
+            self._game_streak_lbl.config(fg=HC_FG, bg=HC_BG)
+
         self._game_streak_prev = streak
 
+        # Timer
         if self._game_time_limit:
             remaining = max(0, self._game_time_limit - self._game_elapsed)
+            warn = remaining < 30
             self._game_timer_var.set(
-                fmt_time(remaining) + (" ⚠" if remaining < 30 else ""))
+                fmt_time(remaining) + (" ⚠" if warn else ""))
+            # Bold when low time, normal otherwise
             self._game_timer_lbl.config(
-                fg=RED if remaining < 30 else
-                AMBER if remaining < 60 else DIM)
+                font=("Courier", 22, "bold") if warn else ("Courier", 22, "bold"),
+                fg=HC_FG, bg=HC_BG)
         else:
             self._game_timer_var.set(fmt_time(self._game_elapsed))
-            self._game_timer_lbl.config(fg=DIM)
+            self._game_timer_lbl.config(fg=HC_FG, bg=HC_BG)
 
         # Progress bar (challenge word-count goal)
         if self._game_submode == "challenge" and self._game_challenge:
             goal = self._game_challenge['goal']
             if goal['type'] == 'word_count':
-                wc  = self._game_scorer.unique_compliant_words
+                wc = sc.unique_compliant_words
                 tgt = goal['target']
                 self._game_prog_var.set(f"{wc} / {tgt}")
                 self._game_prog_frame.pack(fill=tk.X)
@@ -1872,31 +2119,45 @@ class ConstrainedApp:
                     w = self._game_prog_bar.winfo_width()
                     self._game_prog_bar.delete("all")
                     pct = min(1.0, wc / tgt) if tgt else 0
-                    self._game_prog_bar.create_rectangle(
-                        0, 0, int(w * pct), 3,
-                        fill=GREEN if pct >= 1.0 else GAME_ACC, outline="")
+                    fill_w = int(w * pct)
+                    if fill_w > 0:
+                        self._game_prog_bar.create_rectangle(
+                            0, 0, fill_w, 4,
+                            fill=HC_FG, outline="")
                 self._game_prog_bar.after_idle(_draw_prog)
         else:
             self._game_prog_frame.pack_forget()
 
+    def _game_flash_streak(self):
+        """Flash streak field inverted for 200ms on milestone."""
+        self._game_streak_lbl.config(fg="#FFFFFF", bg=HC_BOR)
+        self._streak_inner_frame.config(bg=HC_BOR)
+        def _restore():
+            if self._game_scorer:
+                self._game_streak_lbl.config(fg=HC_FG, bg=HC_BG)
+                self._streak_inner_frame.config(bg=HC_BG)
+        self.root.after(200, _restore)
+
     def _game_show_word_feedback(self, pts: float, compliant: bool):
-        """Flash per-word score feedback below the score label."""
+        """Flash per-word score feedback."""
         if self._game_feedback_job:
             self.root.after_cancel(self._game_feedback_job)
             self._game_feedback_job = None
         if compliant:
             mult = self._game_scorer.streak_mult() if self._game_scorer else 1.0
-            if mult > 1.0:
-                text = f"+{int(pts)}  ×{mult:.1f}"
-            else:
-                text = f"+{int(pts)}"
-            self._game_feedback_lbl.config(fg=GREEN)
+            text = f"+{int(pts)}  ×{mult:.1f}" if mult > 1.0 else f"+{int(pts)}"
+            self._game_feedback_lbl.config(fg=HC_FG, bg=HC_BG,
+                                           font=("Courier", 11, "bold"))
         else:
             text = "STREAK LOST"
-            self._game_feedback_lbl.config(fg=RED)
+            self._game_feedback_lbl.config(fg="#FFFFFF", bg=HC_BOR,
+                                           font=("Courier", 10, "bold"))
         self._game_feedback_var.set(text)
         self._game_feedback_job = self.root.after(
-            1000, lambda: self._game_feedback_var.set(""))
+            1000, lambda: (self._game_feedback_var.set(""),
+                           self._game_feedback_lbl.config(
+                               fg=HC_FG, bg=HC_BG,
+                               font=("Courier", 11, "bold"))))
 
     def _game_on_text_change(self, analysis: dict):
         """Called from _on_key_release when game session is active."""
@@ -2012,8 +2273,14 @@ class ConstrainedApp:
             if _submode == "challenge" and _challenge:
                 entry["stars"]        = stars
                 entry["time_seconds"] = _elapsed
-                append_score(data, "challenges",
-                             _challenge['id'], _diff, entry)
+                if _challenge.get('_is_daily'):
+                    date_str = _challenge.get('_daily_date', get_daily_date())
+                    data.setdefault("daily", {}).setdefault(
+                        date_str, {}).setdefault(_diff, [])
+                    data["daily"][date_str][_diff].append(entry)
+                else:
+                    append_score(data, "challenges",
+                                 _challenge['id'], _diff, entry)
             else:
                 key = f"preset:{_sa_preset['id']}" if _sa_preset else "custom"
                 entry["duration"] = _elapsed
@@ -2048,7 +2315,7 @@ class ConstrainedApp:
             self._ch_list_frame.pack(fill=tk.X)
         else:
             if not self._sa_list_frame.winfo_ismapped():
-                self._sa_list_frame.pack(fill=tk.X, padx=6)
+                self._sa_list_frame.pack(fill=tk.X, padx=0)
 
     def _game_show_results(self, entry: dict, stars: int,
                            timed_out: bool, manual_stop: bool,
@@ -2059,7 +2326,12 @@ class ConstrainedApp:
 
         # Title line
         if is_challenge:
-            title = self._game_challenge['name']
+            ch = self._game_challenge
+            if ch.get('_is_daily'):
+                title = f"DAILY COMPLETE — {ch['name']}"
+                title += f"\n{ch.get('_daily_date', get_daily_date())}"
+            else:
+                title = self._game_challenge['name']
         elif self._game_sa_preset:
             title = f"Score Attack — {self._game_sa_preset['name']}"
         else:
@@ -2073,11 +2345,8 @@ class ConstrainedApp:
         # Stars (challenge only)
         if is_challenge:
             star_str = "★" * stars + "☆" * (3 - stars)
-            star_col = (GREEN if stars == 3 else
-                        AMBER if stars == 2 else
-                        RED   if stars == 1 else DIM2)
             self._game_res_stars_var.set(star_str)
-            self._game_res_stars_lbl.config(fg=star_col)
+            self._game_res_stars_lbl.config(fg=HC_FG)
             self._game_res_stars_lbl.pack(pady=(4, 0))
         else:
             self._game_res_stars_lbl.pack_forget()
@@ -2089,12 +2358,12 @@ class ConstrainedApp:
         best = prev_best
         is_new_high = (best is None or entry['score'] > best) and entry['score'] > 0
         if is_new_high:
-            self._game_res_highscore_var.set("🏆 NEW HIGH SCORE")
-            self._game_res_highscore_lbl.config(fg=AMBER)
+            self._game_res_highscore_var.set("★ NEW HIGH SCORE")
+            self._game_res_highscore_lbl.config(fg="#FFFFFF", bg=HC_BOR)
             self._game_res_highscore_lbl.pack(pady=(2, 0))
         elif best is not None and best > 0:
             self._game_res_highscore_var.set(f"Best: {best}")
-            self._game_res_highscore_lbl.config(fg=DIM2)
+            self._game_res_highscore_lbl.config(fg=HC_DIM, bg=HC_BG)
             self._game_res_highscore_lbl.pack(pady=(2, 0))
         else:
             self._game_res_highscore_lbl.pack_forget()
@@ -2102,7 +2371,6 @@ class ConstrainedApp:
         # Stats
         elapsed = entry.get('time_seconds', entry.get('duration', 0))
         co = entry['compliance']
-        co_col = (GREEN if co >= 0.95 else AMBER if co >= 0.80 else RED)
         self._game_res_stat_vars['time'].set(fmt_time(elapsed))
         self._game_res_stat_vars['words'].set(str(entry['words']))
         self._game_res_stat_vars['comply'].set(f"{int(co*100)}%")
@@ -2156,6 +2424,44 @@ class ConstrainedApp:
         self._game_results_frame.pack(
             fill=tk.X, before=self._game_lb_div)
 
+        # Draw sparkline
+        self._game_draw_sparkline()
+
+    def _game_draw_sparkline(self):
+        """Draw per-word score sparkline on the results canvas."""
+        c = self._game_res_sparkline
+        c.delete("all")
+        scores = self._game_scorer.per_word_scores if self._game_scorer else []
+        if len(scores) < 2:
+            c.create_text(c.winfo_width() // 2 or 100, 30,
+                          text="(not enough data)", fill=HC_DIM,
+                          font=("Courier", 8))
+            return
+        c.update_idletasks()
+        w = c.winfo_width()
+        h = c.winfo_height()
+        if w < 10 or h < 10:
+            c.after(100, self._game_draw_sparkline)
+            return
+        pad = 4
+        n = len(scores)
+        min_s = min(scores)
+        max_s = max(scores)
+        rng = max_s - min_s if max_s != min_s else 1
+        def sx(i): return pad + int(i * (w - 2 * pad) / (n - 1))
+        def sy(v): return pad + int((1 - (v - min_s) / rng) * (h - 2 * pad))
+        # Zero line
+        zero_y = sy(0) if min_s < 0 < max_s else None
+        if zero_y is not None:
+            c.create_line(pad, zero_y, w - pad, zero_y,
+                          fill=HC_DIM, dash=(2, 2))
+        # Sparkline
+        pts = [(sx(i), sy(v)) for i, v in enumerate(scores)]
+        for i in range(len(pts) - 1):
+            c.create_line(pts[i][0], pts[i][1],
+                          pts[i+1][0], pts[i+1][1],
+                          fill=HC_FG, width=1)
+
     def _get_best_score(self) -> int | None:
         """Return best previous score for current challenge/preset+difficulty, or None."""
         data = load_scores()
@@ -2186,15 +2492,17 @@ class ConstrainedApp:
         data = load_scores()
         win  = tk.Toplevel(self.root)
         win.title("Scores")
-        win.configure(bg=GAME_BG)
+        win.configure(bg=HC_BG)
         win.geometry("540x420")
         win.attributes("-topmost", True)
 
-        tk.Label(win, text="LEADERBOARDS", fg=GAME_ACC, bg=GAME_BG,
-                 font=("Courier New", 11, "bold")).pack(
-                 anchor=tk.W, padx=16, pady=(14, 4))
+        # Title bar
+        title_hdr = tk.Frame(win, bg=HC_BOR)
+        title_hdr.pack(fill=tk.X)
+        tk.Label(title_hdr, text="LEADERBOARDS", fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 11, "bold"),
+                 anchor=tk.W, padx=16).pack(fill=tk.X, pady=6)
 
-        # Build flat list of all entries
         rows = []
         for cid, diffs in data.get("challenges", {}).items():
             ch_name = next((c['name'] for c in GAME_CHALLENGES
@@ -2203,32 +2511,40 @@ class ConstrainedApp:
                 for e in entries[:10]:
                     rows.append((ch_name, diff,
                                  str(e.get('score', 0)),
-                                 "★"*e.get('stars', 0),
-                                 f"{int(e.get('compliance',0)*100)}%",
-                                 e.get('date','')[:10]))
+                                 "★" * e.get('stars', 0),
+                                 f"{int(e.get('compliance', 0) * 100)}%",
+                                 e.get('date', '')[:10]))
         for pid, diffs in data.get("score_attack", {}).items():
-            label = pid.replace("preset:", "SA: ").replace("custom","SA: custom")
+            label = pid.replace("preset:", "SA: ").replace("custom", "SA: custom")
             for diff, entries in diffs.items():
                 for e in entries[:10]:
                     rows.append((label, diff,
                                  str(e.get('score', 0)),
                                  "—",
-                                 f"{int(e.get('compliance',0)*100)}%",
-                                 e.get('date','')[:10]))
+                                 f"{int(e.get('compliance', 0) * 100)}%",
+                                 e.get('date', '')[:10]))
+        for date_str, diffs in data.get("daily", {}).items():
+            for diff, entries in diffs.items():
+                for e in entries[:5]:
+                    rows.append((f"Daily {date_str}", diff,
+                                 str(e.get('score', 0)),
+                                 "★" * e.get('stars', 0),
+                                 f"{int(e.get('compliance', 0) * 100)}%",
+                                 date_str))
 
         style = ttk.Style(win)
         style.theme_use('clam')
-        style.configure("Game.Treeview",
-            background=GAME_BG2, foreground=DIM,
-            rowheight=22, fieldbackground=GAME_BG2,
-            bordercolor=GAME_BG, font=("Courier New", 9))
-        style.configure("Game.Treeview.Heading",
-            background=GAME_BG, foreground=DIM2,
-            font=("Courier New", 8, "bold"))
+        style.configure("HC.Treeview",
+            background=HC_BG, foreground=HC_FG,
+            rowheight=22, fieldbackground=HC_BG,
+            bordercolor=HC_BOR, font=("Courier", 9))
+        style.configure("HC.Treeview.Heading",
+            background=HC_BOR, foreground="#FFFFFF",
+            font=("Courier", 8, "bold"))
 
         cols = ("Mode", "Diff", "Score", "Stars", "Comply", "Date")
         tv   = ttk.Treeview(win, columns=cols, show="headings",
-                             style="Game.Treeview")
+                             style="HC.Treeview")
         for col, w in zip(cols, [140, 50, 60, 50, 60, 80]):
             tv.heading(col, text=col)
             tv.column(col, width=w, anchor=tk.CENTER
@@ -2239,30 +2555,32 @@ class ConstrainedApp:
             for r in rows:
                 tv.insert("", tk.END, values=r)
         else:
-            tv.insert("", tk.END, values=("No scores yet","","","","",""))
+            tv.insert("", tk.END, values=("No scores yet", "", "", "", "", ""))
 
         sb2 = ttk.Scrollbar(win, orient=tk.VERTICAL, command=tv.yview)
         tv.configure(yscrollcommand=sb2.set)
-        sb2.pack(side=tk.RIGHT, fill=tk.Y, padx=(0,8), pady=(0,8))
-        tv.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0,8))
+        sb2.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=(0, 8))
+        tv.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        tk.Button(win, text="Close", fg=DIM, bg=GAME_BG2, relief=tk.FLAT,
-            font=("Courier New", 9), pady=4, bd=0, cursor="hand2",
-            activebackground=GAME_BG2,
-            command=win.destroy).pack(pady=(0,8))
+        tk.Button(win, text="Close", fg=HC_FG, bg=HC_BG,
+            relief=tk.FLAT, font=("Courier", 9), pady=4, bd=1,
+            cursor="hand2", activebackground=HC_BOR,
+            activeforeground="#FFFFFF",
+            command=win.destroy).pack(pady=(0, 8))
 
     def _make_preset_row(self, parent, p: dict, deletable: bool):
-        row = tk.Frame(parent, bg=BG2, cursor="hand2")
-        row.pack(fill=tk.X)
-        dot = tk.Label(row, text="▪", fg=p['color'], bg=BG2,
-                       font=("Courier New", 9), width=2)
-        dot.pack(side=tk.LEFT, padx=(8, 0))
+        row = tk.Frame(parent, bg=BG2, cursor="hand2",
+                       highlightthickness=1, highlightbackground=BORDER)
+        row.pack(fill=tk.X, pady=1)
+        dot = tk.Label(row, text="▪", fg=HC_FG, bg=BG2,
+                       font=("Courier", 9), width=2)
+        dot.pack(side=tk.LEFT, padx=(6, 0))
         lbl = tk.Label(row, text=p['name'], fg=DIM, bg=BG2,
                        font=SERIF_SM, anchor=tk.W, cursor="hand2")
-        lbl.pack(side=tk.LEFT, padx=4, pady=6, fill=tk.X, expand=True)
+        lbl.pack(side=tk.LEFT, padx=4, pady=5, fill=tk.X, expand=True)
         if deletable:
             del_btn = tk.Label(row, text="✕", fg=DIM2, bg=BG2,
-                               font=("Courier New", 8), cursor="hand2", padx=4)
+                               font=("Courier", 8), cursor="hand2", padx=4)
             del_btn.pack(side=tk.RIGHT, padx=(0, 6))
             del_btn.bind("<Button-1>",
                 lambda e, pid=p['id']: self._delete_user_preset(pid))
@@ -2272,19 +2590,23 @@ class ConstrainedApp:
         self.preset_rows[p['id']] = (row, lbl, dot)
 
     def _sb_label(self, parent, text):
-        tk.Label(parent, text=text, fg=DIM2, bg=BG2,
-                 font=("Courier New", 8)).pack(anchor=tk.W, padx=12, pady=(6, 2))
+        hdr = tk.Frame(parent, bg=HC_BOR)
+        hdr.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(hdr, text=text, fg="#FFFFFF", bg=HC_BOR,
+                 font=("Courier", 8, "bold"),
+                 anchor=tk.W, padx=8).pack(fill=tk.X, pady=2)
 
     def _sb_bar_section(self, parent, label):
         f   = tk.Frame(parent, bg=BG2)
         row = tk.Frame(f, bg=BG2)
         row.pack(fill=tk.X)
         tk.Label(row, text=label, fg=DIM2, bg=BG2,
-                 font=("Courier New", 8)).pack(side=tk.LEFT)
+                 font=("Courier", 8)).pack(side=tk.LEFT)
         sv = tk.StringVar(value="")
         tk.Label(row, textvariable=sv, fg=DIM, bg=BG2,
-                 font=("Courier New", 9)).pack(side=tk.RIGHT)
-        bar = tk.Canvas(f, bg=BORDER, height=3, highlightthickness=0)
+                 font=("Courier", 9)).pack(side=tk.RIGHT)
+        bar = tk.Canvas(f, bg=BG3, height=4,
+                        highlightthickness=1, highlightbackground=HC_BOR)
         bar.pack(fill=tk.X, pady=(2, 0))
         f._sv  = sv
         f._bar = bar
@@ -2297,7 +2619,7 @@ class ConstrainedApp:
             w = frame._bar.winfo_width()
             frame._bar.delete("all")
             frame._bar.create_rectangle(
-                0, 0, max(0, int(w * min(1.0, pct/100))), 3,
+                0, 0, max(0, int(w * min(1.0, pct/100))), 4,
                 fill=color, outline="")
         frame._bar.after_idle(_draw)
         frame.pack(fill=tk.X, padx=12, pady=3)
@@ -2310,15 +2632,15 @@ class ConstrainedApp:
         hdr_row = tk.Frame(self.history_frame, bg=BG)
         hdr_row.pack(fill=tk.X, padx=32, pady=(24, 12))
         tk.Label(hdr_row, text="SESSION HISTORY", fg=DIM2, bg=BG,
-                 font=("Courier New", 9)).pack(side=tk.LEFT)
+                 font=("Courier", 9)).pack(side=tk.LEFT)
         right = tk.Frame(hdr_row, bg=BG)
         right.pack(side=tk.RIGHT)
         tk.Button(right, text="Clear all", fg=DIM2, bg=BG,
-                  relief=tk.FLAT, font=("Courier New", 8), cursor="hand2",
+                  relief=tk.FLAT, font=("Courier", 8), cursor="hand2",
                   bd=0, activebackground=BG,
                   command=self._clear_history).pack(side=tk.LEFT, padx=8)
         tk.Button(right, text="+ New Session", fg=ACCENT, bg=BG,
-                  relief=tk.FLAT, font=("Courier New", 9), cursor="hand2",
+                  relief=tk.FLAT, font=("Courier", 9), cursor="hand2",
                   bd=0, activebackground=BG,
                   command=lambda: self._show_view("editor")).pack(side=tk.LEFT)
 
@@ -2361,7 +2683,7 @@ class ConstrainedApp:
         pad.pack(fill=tk.BOTH, expand=True, padx=48, pady=28)
 
         tk.Label(pad, text="CONSTRAINT BUILDER", fg=DIM2, bg=BG,
-                 font=("Courier New", 9)).pack(anchor=tk.W, pady=(0, 16))
+                 font=("Courier", 9)).pack(anchor=tk.W, pady=(0, 16))
 
         self._brow(pad, "Exact Word Length",
                    "Every word must be exactly N letters long.",
@@ -2401,16 +2723,16 @@ class ConstrainedApp:
         btn_row = tk.Frame(pad, bg=BG)
         btn_row.pack(anchor=tk.W, pady=(4, 16))
         tk.Button(btn_row, text="APPLY & START SESSION",
-                  fg="#000", bg=ACCENT, relief=tk.FLAT,
-                  font=("Courier New", 10, "bold"), padx=20, pady=10,
+                  fg="#FFFFFF", bg=HC_BOR, relief=tk.FLAT,
+                  font=("Courier", 10, "bold"), padx=20, pady=10,
                   cursor="hand2", bd=0,
-                  activeforeground="#000", activebackground="#d4920a",
+                  activeforeground="#FFFFFF", activebackground=HC_DIM,
                   command=self._apply_builder).pack(side=tk.LEFT)
         tk.Button(btn_row, text="SAVE AS PRESET",
-                  fg=ACCENT, bg=BG3, relief=tk.FLAT,
-                  font=("Courier New", 10), padx=16, pady=10,
-                  cursor="hand2", bd=0,
-                  activeforeground=ACCENT, activebackground=BG3,
+                  fg=HC_FG, bg=BG3, relief=tk.FLAT,
+                  font=("Courier", 10), padx=16, pady=10,
+                  cursor="hand2", bd=1,
+                  activeforeground="#FFFFFF", activebackground=HC_BOR,
                   command=self._save_builder_as_preset).pack(
                       side=tk.LEFT, padx=(10, 0))
 
@@ -2418,7 +2740,7 @@ class ConstrainedApp:
         tk.Frame(pad, bg=BORDER, height=1).pack(fill=tk.X, pady=12)
         tk.Label(pad,
                  text="LETTER FREQUENCY  —  % of English words starting with each letter",
-                 fg=DIM2, bg=BG, font=("Courier New", 8)).pack(
+                 fg=DIM2, bg=BG, font=("Courier", 8)).pack(
                      anchor=tk.W, pady=(0, 8))
         chart = tk.Canvas(pad, bg=BG, height=90, highlightthickness=0)
         chart.pack(fill=tk.X)
@@ -2436,17 +2758,17 @@ class ConstrainedApp:
                 y0    = 65 - bar_h
                 rare  = l in ('x', 'q', 'z')
                 chart.create_rectangle(x0, y0, x1, 65,
-                    fill="#3a1a1a" if rare else "#1e2a1e", outline="")
-                chart.create_rectangle(x0, y0, x1, y0+2,
-                    fill=RED if rare else GREEN, outline="")
+                    fill=BG3, outline=HC_BOR)
+                chart.create_rectangle(x0, y0, x1, y0 + 2,
+                    fill=DIM2 if rare else HC_FG, outline="")
                 chart.create_text(x0+bw/2-1, 75,
-                    text=l.upper(), font=("Courier New", 7), fill=DIM2)
+                    text=l.upper(), font=("Courier", 7), fill=DIM2)
 
         chart.bind("<Configure>", draw_chart)
         pad.after(120, draw_chart)
         tk.Label(pad,
                  text="Red (X, Q, Z) are rare word-starters — plan accordingly.",
-                 fg=DIM2, bg=BG, font=("Courier New", 8), pady=4).pack(anchor=tk.W)
+                 fg=DIM2, bg=BG, font=("Courier", 8), pady=4).pack(anchor=tk.W)
 
     def _brow(self, parent, label, desc, var, spinners, extra_widgets=None):
         card = tk.Frame(parent, bg=BG3)
@@ -2455,33 +2777,34 @@ class ConstrainedApp:
         top.pack(fill=tk.X, padx=14, pady=(10, 4))
         left = tk.Frame(top, bg=BG3)
         left.pack(side=tk.LEFT)
-        tk.Label(left, text=label, fg=DIM, bg=BG3,
-                 font=("Georgia", 12)).pack(anchor=tk.W)
+        tk.Label(left, text=label, fg=HC_FG, bg=BG3,
+                 font=("Courier", 11, "bold")).pack(anchor=tk.W)
         tk.Label(left, text=desc,  fg=DIM2, bg=BG3,
-                 font=("Courier New", 8)).pack(anchor=tk.W)
+                 font=("Courier", 8)).pack(anchor=tk.W)
         tog = tk.Label(top, text="OFF", fg=DIM2, bg=BG3,
-                       font=("Courier New", 9, "bold"),
-                       cursor="hand2", padx=9, pady=3)
+                       font=("Courier", 9, "bold"),
+                       cursor="hand2", padx=9, pady=3,
+                       highlightthickness=1, highlightbackground=HC_BOR)
         tog.pack(side=tk.RIGHT, padx=(8, 0))
         body = tk.Frame(card, bg=BG3)
         if spinners:
             srow = tk.Frame(body, bg=BG3)
             srow.pack(anchor=tk.W, padx=14, pady=(0, 8))
             for lbl_txt, ivar, lo, hi in spinners:
-                tk.Label(srow, text=lbl_txt, fg=DIM, bg=BG3,
-                         font=("Courier New", 10)).pack(side=tk.LEFT)
+                tk.Label(srow, text=lbl_txt, fg=HC_FG, bg=BG3,
+                         font=("Courier", 10)).pack(side=tk.LEFT)
                 tk.Spinbox(srow, from_=lo, to=hi, textvariable=ivar,
-                           width=8, bg="#0a0a0d", fg=TEXT,
-                           insertbackground=ACCENT, relief=tk.FLAT,
-                           font=("Courier New", 12),
-                           buttonbackground=BG2).pack(side=tk.LEFT, padx=(6,16))
+                           width=8, bg=HC_BG, fg=HC_FG,
+                           insertbackground=HC_BOR, relief=tk.SOLID,
+                           font=("Courier", 12),
+                           buttonbackground=BG2).pack(side=tk.LEFT, padx=(6, 16))
         if extra_widgets:
             extra_widgets(body)
 
         def toggle(e=None):
             var.set(not var.get())
             if var.get():
-                tog.config(text="ON", fg="#000", bg=ACCENT)
+                tog.config(text="ON", fg="#FFFFFF", bg=HC_BOR)
                 body.pack(fill=tk.X)
             else:
                 tog.config(text="OFF", fg=DIM2, bg=BG3)
@@ -2490,28 +2813,28 @@ class ConstrainedApp:
 
     def _alpha_extras(self, parent):
         tk.Checkbutton(parent, text="Skip X entirely (25-letter cycle)",
-                       variable=self.b['ac_skipx'], fg=DIM, bg=BG3,
-                       selectcolor=BG, activebackground=BG3,
-                       font=("Courier New", 9)).pack(anchor=tk.W, padx=14)
+                       variable=self.b['ac_skipx'], fg=HC_FG, bg=BG3,
+                       selectcolor=HC_BOR, activebackground=BG3,
+                       font=("Courier", 9)).pack(anchor=tk.W, padx=14)
         tk.Checkbutton(parent, text="X turn is optional (any letter accepted)",
-                       variable=self.b['ac_xopt'], fg=DIM, bg=BG3,
-                       selectcolor=BG, activebackground=BG3,
-                       font=("Courier New", 9)).pack(
+                       variable=self.b['ac_xopt'], fg=HC_FG, bg=BG3,
+                       selectcolor=HC_BOR, activebackground=BG3,
+                       font=("Courier", 9)).pack(
                            anchor=tk.W, padx=14, pady=(0, 8))
 
     def _norepeat_extras(self, parent):
         tk.Checkbutton(parent,
                        text="Content words only (ignore: the, and, I, etc.)",
-                       variable=self.b['nr_content'], fg=DIM, bg=BG3,
-                       selectcolor=BG, activebackground=BG3,
-                       font=("Courier New", 9)).pack(
+                       variable=self.b['nr_content'], fg=HC_FG, bg=BG3,
+                       selectcolor=HC_BOR, activebackground=BG3,
+                       font=("Courier", 9)).pack(
                            anchor=tk.W, padx=14, pady=(0, 4))
         note = ("spaCy active — lemma matching (ran = run = running)."
                 if SPACY_AVAILABLE else
                 "spaCy not found — exact string matching only.")
         tk.Label(parent, text=note,
                  fg=GREEN if SPACY_AVAILABLE else DIM2,
-                 bg=BG3, font=("Courier New", 8)).pack(
+                 bg=BG3, font=("Courier", 8)).pack(
                      anchor=tk.W, padx=14, pady=(0, 8))
 
     def _dict_extras(self, parent):
@@ -2520,7 +2843,7 @@ class ConstrainedApp:
                 "wordlist.txt not found — place it alongside tether.py")
         tk.Label(parent, text=note,
                  fg=GREEN if WORDLIST else RED,
-                 bg=BG3, font=("Courier New", 8)).pack(
+                 bg=BG3, font=("Courier", 8)).pack(
                      anchor=tk.W, padx=14, pady=(0, 8))
 
     # ─────────────────────────────────────────────────────────────
@@ -2535,10 +2858,10 @@ class ConstrainedApp:
          'builder': self.builder_frame}[view].pack(fill=tk.BOTH, expand=True)
         for v, btn in self.nav_btns.items():
             active = v == view
-            btn.config(fg="#000" if active else DIM,
-                       bg=ACCENT if active else BG2,
-                       activeforeground="#000" if active else DIM,
-                       activebackground=ACCENT if active else BG2)
+            btn.config(fg="#FFFFFF" if active else DIM,
+                       bg=HC_BOR if active else BG2,
+                       activeforeground="#FFFFFF" if active else DIM,
+                       activebackground=HC_BOR if active else BG2)
         if view == "history":
             self._refresh_history()
         if view == "editor":
@@ -2859,9 +3182,9 @@ class ConstrainedApp:
             lbl = tk.Label(
                 self.warn_frame,
                 text=f"{'⚠ IMPOSSIBLE:' if is_err else '⚡'} {w['msg']}",
-                fg=RED if is_err else AMBER,
-                bg="#1a0808" if is_err else "#18140a",
-                font=("Courier New", 9), anchor=tk.W, padx=16, pady=5)
+                fg=HC_FG, bg=BG3,
+                font=("Courier", 9, "bold" if is_err else "normal"),
+                anchor=tk.W, padx=16, pady=5)
             lbl.pack(fill=tk.X)
             self.warn_widgets.append(lbl)
 
@@ -2913,9 +3236,11 @@ class ConstrainedApp:
         for pid, (row, lbl, dot) in self.preset_rows.items():
             active = (pid == self.active_preset.get('id')
                       and not self.custom_constraints)
-            bg = "#13131a" if active else BG2
-            fg = TEXT if active else DIM
-            row.config(bg=bg); lbl.config(bg=bg, fg=fg); dot.config(bg=bg)
+            bg = HC_BOR if active else BG2
+            fg = "#FFFFFF" if active else DIM
+            row.config(bg=bg, highlightbackground=HC_BOR)
+            lbl.config(bg=bg, fg=fg)
+            dot.config(bg=bg, fg="#FFFFFF" if active else HC_FG)
 
     def _update_next_letter(self):
         ne = self.analysis.get('next_expected')
@@ -2945,7 +3270,7 @@ class ConstrainedApp:
         if not self.history:
             tk.Label(self.hist_inner, text="No sessions saved yet.",
                      fg=DIM2, bg=BG,
-                     font=("Georgia", 13, "italic"), pady=60).pack()
+                     font=("Courier", 13), pady=60).pack()
             return
 
         for s in self.history:
@@ -2959,19 +3284,19 @@ class ConstrainedApp:
 
             name_row = tk.Frame(left, bg=BG3)
             name_row.pack(anchor=tk.W)
-            tk.Label(name_row, text=s['preset_name'], fg=TEXT, bg=BG3,
-                     font=("Georgia", 12)).pack(side=tk.LEFT)
+            tk.Label(name_row, text=s['preset_name'], fg=HC_FG, bg=BG3,
+                     font=("Courier", 12, "bold")).pack(side=tk.LEFT)
             if s['is_custom']:
-                tk.Label(name_row, text=" CUSTOM", fg=ACCENT, bg=BG3,
-                         font=("Courier New", 8)).pack(side=tk.LEFT, padx=4)
+                tk.Label(name_row, text=" CUSTOM", fg=HC_FG, bg=BG3,
+                         font=("Courier", 8, "bold")).pack(side=tk.LEFT, padx=4)
 
             tk.Label(left, text=f"{s['date']}  ·  {fmt_time(s['duration'])}",
                      fg=DIM2, bg=BG3,
-                     font=("Courier New", 8)).pack(anchor=tk.W)
+                     font=("Courier", 8)).pack(anchor=tk.W)
 
             excerpt = s['excerpt'][:140] + ("…" if len(s['excerpt']) > 140 else "")
-            tk.Label(left, text=excerpt, fg="#3a3a3a", bg=BG3,
-                     font=("Courier New", 9), wraplength=520,
+            tk.Label(left, text=excerpt, fg=DIM, bg=BG3,
+                     font=("Courier", 9), wraplength=520,
                      justify=tk.LEFT).pack(anchor=tk.W, pady=(5, 0))
 
             r    = s.get('readability', {})
@@ -2989,38 +3314,39 @@ class ConstrainedApp:
                 ling.append(f"Repeats: {s['repeated_lemmas']}")
             if ling:
                 tk.Label(left, text="  ·  ".join(ling),
-                         fg="#2a3a2a", bg=BG3,
-                         font=("Courier New", 8),
+                         fg=DIM2, bg=BG3,
+                         font=("Courier", 8),
                          anchor=tk.W).pack(anchor=tk.W, pady=(3, 0))
 
             right  = tk.Frame(body, bg=BG3)
             right.pack(side=tk.RIGHT, padx=(12, 0))
             co     = s['compliance']
-            co_col = RED if co < 80 else AMBER if co < 95 else GREEN
-            for val, lbl, col in [
-                (s['word_count'], "words", ACCENT),
-                (s['wpm'],        "wpm",   BLUE),
-                (f"{co}%",        "comply",co_col),
+            # HC: use bold for low compliance to signal attention, normal for good
+            co_weight = "bold" if co < 80 else "normal"
+            for val, lbl_txt, weight in [
+                (s['word_count'], "words",  "bold"),
+                (s['wpm'],        "wpm",    "normal"),
+                (f"{co}%",        "comply", co_weight),
             ]:
                 m = tk.Frame(right, bg=BG3)
                 m.pack(side=tk.LEFT, padx=10)
-                tk.Label(m, text=str(val), fg=col, bg=BG3,
-                         font=("Courier New", 18)).pack()
-                tk.Label(m, text=lbl, fg=DIM2, bg=BG3,
-                         font=("Courier New", 8)).pack()
+                tk.Label(m, text=str(val), fg=HC_FG, bg=BG3,
+                         font=("Courier", 18, weight)).pack()
+                tk.Label(m, text=lbl_txt, fg=DIM2, bg=BG3,
+                         font=("Courier", 8)).pack()
 
             if co < 90:
                 self._hist_note(card,
                     "↳  Compliance below 90%. Try again, or switch to a simpler preset.",
-                    DIM2)
+                    DIM)
             elif co >= 98 and s['wpm'] > 0:
                 self._hist_note(card,
                     "↳  Near-perfect. Consider adding a time limit or word goal.",
-                    "#1a3a2a")
+                    DIM2)
             if s.get('repeated_lemmas') == 0 and s['word_count'] > 50:
                 self._hist_note(card,
                     "↳  Zero repeated roots — exceptional lexical discipline.",
-                    "#1a2a3a")
+                    DIM2)
 
         self.hist_canvas.configure(
             scrollregion=self.hist_canvas.bbox("all"))
@@ -3028,7 +3354,7 @@ class ConstrainedApp:
     def _hist_note(self, parent, text, fg):
         tk.Frame(parent, bg=BORDER, height=1).pack(fill=tk.X, padx=18)
         tk.Label(parent, text=text, fg=fg, bg=BG3,
-                 font=("Courier New", 8, "italic"),
+                 font=("Courier", 8, "italic"),
                  anchor=tk.W, padx=18, pady=5).pack(fill=tk.X)
 
     def _clear_history(self):
@@ -3082,14 +3408,14 @@ class ConstrainedApp:
         elif not ws:
             tk.Label(self.feas_inner, text="✓  Constraints look feasible.",
                      fg=GREEN, bg=BG3,
-                     font=("Courier New", 10)).pack(anchor=tk.W)
+                     font=("Courier", 10)).pack(anchor=tk.W)
         else:
             for w in ws:
                 is_err = w['level'] == 'error'
                 tk.Label(self.feas_inner,
                          text=f"{'⚠  IMPOSSIBLE:' if is_err else '⚡  '} {w['msg']}",
                          fg=RED if is_err else AMBER, bg=BG3,
-                         font=("Courier New", 9)).pack(anchor=tk.W, pady=2)
+                         font=("Courier", 9)).pack(anchor=tk.W, pady=2)
 
     def _apply_builder(self):
         c = self._constraints_from_builder()
@@ -3276,11 +3602,11 @@ class TetherOnboarding:
         # Step counter
         tk.Label(inner, text=f"STEP {self.step + 1} OF {total}",
                  fg=ACCENT, bg=BG2,
-                 font=("Courier New", 8, "bold")).pack(anchor=tk.W)
+                 font=("Courier", 8, "bold")).pack(anchor=tk.W)
 
         # Title
         tk.Label(inner, text=s["title"], fg=TEXT, bg=BG2,
-                 font=("Courier New", 13, "bold"),
+                 font=("Courier", 13, "bold"),
                  wraplength=340, justify=tk.LEFT).pack(anchor=tk.W, pady=(4, 0))
 
         tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X, pady=8)
@@ -3297,13 +3623,13 @@ class TetherOnboarding:
         btn_row.pack(fill=tk.X)
 
         tk.Button(btn_row, text="Skip tour", fg=DIM2, bg=BG2,
-                  relief=tk.FLAT, font=("Courier New", 8), bd=0,
+                  relief=tk.FLAT, font=("Courier", 8), bd=0,
                   activebackground=BG2, cursor="hand2",
                   command=self._skip).pack(side=tk.LEFT)
 
         if self.step > 0:
             tk.Button(btn_row, text="← Back", fg=DIM, bg=BG2,
-                      relief=tk.FLAT, font=("Courier New", 9), bd=0,
+                      relief=tk.FLAT, font=("Courier", 9), bd=0,
                       activebackground=BG2, cursor="hand2",
                       command=self._prev).pack(side=tk.RIGHT, padx=(6, 0))
 
@@ -3311,7 +3637,7 @@ class TetherOnboarding:
         next_txt = "Done  ✓" if is_last else "Next →"
         next_fg  = GREEN  if is_last else ACCENT
         tk.Button(btn_row, text=next_txt, fg=next_fg, bg=BG2,
-                  relief=tk.FLAT, font=("Courier New", 9, "bold"), bd=0,
+                  relief=tk.FLAT, font=("Courier", 9, "bold"), bd=0,
                   activebackground=BG2, cursor="hand2",
                   command=self._next).pack(side=tk.RIGHT)
 
