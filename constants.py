@@ -1,8 +1,8 @@
 import os
 
 
-VERSION = "0.3.2"
-GITHUB_REPO = "GrowlingHuel/tether"
+VERSION = "0.4.0"
+GITHUB_REPO = "HyperArkStudios/tether"
 
 APP_DIR = os.path.join(os.path.expanduser("~"), ".tether")
 HISTORY_FILE = os.path.join(APP_DIR, "history.json")
@@ -51,22 +51,6 @@ BUILTIN_PRESETS = [
     {"id": "free", "name": "Free Write", "color": "#6b7280",
      "desc": "No constraints. Just write.",
      "constraints": [], "builtin": True},
-    {"id": "three_letter", "name": "Three-Letter Words", "color": "#fb923c",
-     "desc": "Every word must be exactly 3 letters.",
-     "constraints": [{"type": "wordLength", "exact": 3}], "builtin": True},
-    {"id": "four_letter", "name": "Four-Letter Words", "color": "#f59e0b",
-     "desc": "Every word must be exactly 4 letters.",
-     "constraints": [{"type": "wordLength", "exact": 4}], "builtin": True},
-    {"id": "five_letter", "name": "Five-Letter Words", "color": "#eab308",
-     "desc": "Every word must be exactly 5 letters.",
-     "constraints": [{"type": "wordLength", "exact": 5}], "builtin": True},
-    {"id": "alpha_cycle", "name": "Alphabet Cycle", "color": "#10b981",
-     "desc": "Each word starts with next letter (A-B-C... X optional).",
-     "constraints": [{"type": "alphaCycle", "skipX": False, "xOptional": True}],
-     "builtin": True},
-    {"id": "no_repeat", "name": "No Repeated Words", "color": "#8b5cf6",
-     "desc": "Never reuse the same root word (ran=run=running).",
-     "constraints": [{"type": "noRepeat", "contentOnly": True}], "builtin": True},
     {"id": "sprint_500", "name": "500-Word Sprint", "color": "#3b82f6",
      "desc": "Write 500 words in 10 minutes (~50 WPM).",
      "constraints": [{"type": "wordGoal", "target": 500},
@@ -75,21 +59,6 @@ BUILTIN_PRESETS = [
      "desc": "Write 1000 words in 15 minutes (~67 WPM).",
      "constraints": [{"type": "wordGoal", "target": 1000},
                     {"type": "timeLimit", "seconds": 900}], "builtin": True},
-    {"id": "pangram_100", "name": "Pangram in 100", "color": "#8b5cf6",
-     "desc": "Use every letter of the alphabet within 100 words.",
-     "constraints": [{"type": "pangram", "withinWords": 100}], "builtin": True},
-    {"id": "letter_budget", "name": "Letter Budget", "color": "#ec4899",
-     "desc": "Each starting letter used max 30 times.",
-     "constraints": [{"type": "startLetterMax", "max": 30}], "builtin": True},
-    {"id": "gauntlet", "name": "Gauntlet", "color": "#ef4444",
-     "desc": "4-letter words, alphabet cycle, no repeats, 300 words/15 min.",
-     "constraints": [
-         {"type": "wordLength", "exact": 4},
-         {"type": "alphaCycle", "skipX": False, "xOptional": True},
-         {"type": "noRepeat", "contentOnly": True},
-         {"type": "wordGoal", "target": 300},
-         {"type": "timeLimit", "seconds": 900},
-     ], "builtin": True},
 ]
 
 _AC = {"type": "alphaCycle", "skipX": False, "xOptional": True}
@@ -105,16 +74,26 @@ GAME_CHALLENGES = [
          "one": {"compliance_min": 0.70},
          "two": {"compliance_min": 0.85, "time_remaining_min": 30},
          "three": {"compliance_min": 0.95, "time_remaining_min": 60, "score_min": 160}}},
-    {"id": "four-letter-sprint", "name": "Four-Letter Sprint",
+    {"id": "four-letter-words", "name": "Four-Letter Words",
      "requires": None,
-     "description": "Write 150 words using only 4-letter words. You have 5 minutes.",
+     "description": "Write 100 unique real 4-letter words. You have 6 minutes.",
      "constraints": [{"type": "wordLength", "exact": 4}],
-     "goal": {"type": "word_count", "target": 150},
-     "time_limit_seconds": 300, "difficulty_multiplier": 1.5,
+     "goal": {"type": "word_count", "target": 100},
+     "time_limit_seconds": 360, "difficulty_multiplier": 1.5,
      "star_thresholds": {
          "one": {"compliance_min": 0.70},
          "two": {"compliance_min": 0.85, "time_remaining_min": 30},
-         "three": {"compliance_min": 0.95, "time_remaining_min": 90, "score_min": 800}}},
+         "three": {"compliance_min": 0.95, "time_remaining_min": 60, "score_min": 550}}},
+    {"id": "four-letter-sprint", "name": "Four-Letter Sprint",
+     "requires": "four-letter-words",
+     "description": "150 unique real 4-letter words. Five minutes. This is hard.",
+     "constraints": [{"type": "wordLength", "exact": 4}],
+     "goal": {"type": "word_count", "target": 150},
+     "time_limit_seconds": 300, "difficulty_multiplier": 2.0,
+     "star_thresholds": {
+         "one": {"compliance_min": 0.70},
+         "two": {"compliance_min": 0.85, "time_remaining_min": 30},
+         "three": {"compliance_min": 0.95, "time_remaining_min": 60, "score_min": 1000}}},
     {"id": "threes-company", "name": "Three's Company",
      "requires": None,
      "description": "Write 100 words — every word exactly 3 letters. You have 5 minutes.",
@@ -177,7 +156,7 @@ GAME_CHALLENGES = [
          "three": {"compliance_min": 0.95, "time_remaining_min": 60, "score_min": 500}}},
     {"id": "letter-budget", "name": "Letter Budget",
      "requires": None,
-     "description": "Each starting letter may only begin 3 words. Write 150. Six minutes.",
+     "description": "Write up to 150 words. Every letter of the alphabet except X must begin at least 2 of your words. 6 minutes.",
      "constraints": [{"type": "startLetterMax", "max": 3}],
      "goal": {"type": "word_count", "target": 150},
      "time_limit_seconds": 360, "difficulty_multiplier": 1.25,
@@ -225,20 +204,8 @@ GAME_CHALLENGES = [
          "one": {"compliance_min": 0.70},
          "two": {"compliance_min": 0.85, "time_remaining_min": 30},
          "three": {"compliance_min": 1.00, "time_remaining_min": 60, "score_min": 500}}},
-    {"id": "gauntlet-lite", "name": "Gauntlet Lite",
-     "requires": "four-letter-sprint",
-     "description": "100 unique real 4-letter words. Six minutes.",
-     "constraints": [{"type": "wordLength", "exact": 4},
-                    {"type": "noRepeat", "contentOnly": True},
-                    {"type": "dictCheck"}],
-     "goal": {"type": "word_count", "target": 100},
-     "time_limit_seconds": 360, "difficulty_multiplier": 2.25,
-     "star_thresholds": {
-         "one": {"compliance_min": 0.70},
-         "two": {"compliance_min": 0.85, "time_remaining_min": 30},
-         "three": {"compliance_min": 0.95, "time_remaining_min": 90, "score_min": 800}}},
     {"id": "the-gauntlet", "name": "The Gauntlet",
-     "requires": "gauntlet-lite",
+     "requires": "four-letter-sprint",
      "description": "150 words: 4 letters, alphabet cycle, no repeats. Ten minutes.",
      "constraints": [{"type": "wordLength", "exact": 4},
                     _AC,

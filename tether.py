@@ -142,6 +142,17 @@ def save_scores(data: dict):
         print(f"Warning: could not save scores: {e}")
 
 
+def migrate_scores():
+    """One-time migration: move old 'four-letter-sprint' scores to 'four-letter-words'.
+    The old open challenge (150 words, 5 min) was renamed; its scores belong under
+    the new id. Without this, those old scores falsely unlock 'the-gauntlet'."""
+    data = load_scores()
+    ch = data.get("challenges", {})
+    if "four-letter-sprint" in ch and "four-letter-words" not in ch:
+        ch["four-letter-words"] = ch.pop("four-letter-sprint")
+        save_scores(data)
+
+
 def challenge_has_star(cid: str) -> bool:
     """Return True if challenge has at least 1 ★ completion (any difficulty)."""
     data = load_scores()
@@ -187,7 +198,7 @@ class ConstrainedApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("TETHER  v0.3.2")
+        self.root.title(f"TETHER  v{VERSION}")
         self.root.configure(bg=BG)
         self.root.geometry("1200x760")
         self.root.minsize(880, 560)
@@ -224,6 +235,7 @@ class ConstrainedApp:
         self._game_timer_job     = None
         self._game_feedback_job  = None   # pending root.after for feedback clear
         self._game_streak_prev   = 0      # track prev streak to detect resets
+        migrate_scores()
         self._game_unlocked      = get_unlocked_challenges()
         self._game_pb_score: int | None = None   # PB captured at session start
         self._game_streak_tier_prev: float = 1.0 # for milestone flash detection
