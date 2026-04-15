@@ -24,9 +24,6 @@ BLUE = "#555555"
 AMBER = "#888888"
 
 SERIF_SM = ("Courier", 9)
-GAME_BG = "#0c0b14"
-GAME_BG2 = "#100f1c"
-GAME_ACC = "#7c3aed"
 
 HC_BG = "#FFFFFF"
 HC_FG = "#000000"

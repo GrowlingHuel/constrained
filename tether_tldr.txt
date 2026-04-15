@@ -21,13 +21,13 @@ Developer: Jesse Clark, Linux Mint, ~/Projects/typing/
 
 CURRENT VERSION
 ---------------
-v0.3.2 — shipping, stable, three-platform binaries available (Write mode)
-game-mode branch — in development, adds Game Mode (not yet released)
-Main branch tagged v0.3.2-stable as safety checkpoint.
+v0.4.0 — game-mode branch, in development. Adds full Game Mode.
+Main branch is master.
 
 STACK
 -----
-- Language: Python 3.10 (single file: tether.py, ~2900+ lines with game mode)
+- Language: Python 3.10
+- Modules: tether.py (main app), constants.py, wordlist.py, analyzer.py, scorer.py
 - GUI: tkinter (stdlib only — no external GUI deps)
 - Optional NLP: spaCy (en_core_web_sm) + textstat for linguistic analysis
 - Wordlist: SCOWL-80, 357,325 words at ~/Projects/typing/wordlist.txt
@@ -50,19 +50,20 @@ startLetterMax  — each starting letter used at most N times
 pangram         — use every alphabet letter within N words
 dictCheck       — every word must be in the wordlist
 
-BUILT-IN PRESETS (11)
+BUILT-IN PRESETS (3)
 ---------------------
-Free Write, Three/Four/Five-Letter Words, Alphabet Cycle, No Repeated Words,
-500-Word Sprint, 1000-Word Sprint, Pangram in 100, Letter Budget, Gauntlet
+Free Write, 500-Word Sprint, 1000-Word Sprint
+(Old presets like Three/Four/Five-Letter Words, Alphabet Cycle, etc. were
+ moved exclusively into Game Mode challenges.)
 
-GAME MODE (game-mode branch)
------------------------------
-Toggle: Write / Game switch at top of sidebar. Game mode replaces sidebar
+GAME MODE
+---------
+Toggle: WRITE / GAME switch at top of sidebar. Game mode replaces sidebar
 with game panel. Two sub-modes:
 
 Challenge Mode:
 - 15 curated challenges covering all constraint types
-- Progression locks: 8 open from start, 7 unlock by earning ★ on prerequisites
+- Progression locks: some challenges require ★ on a prerequisite challenge
 - Star rating (★ to ★★★) based on compliance, time, and score
 - Word-goal challenges count UNIQUE compliant words only (repeats don't advance)
 - "were" and "we're" count as separate unique words
@@ -73,7 +74,7 @@ Challenge Mode:
   - Five Alive → Verbose
   - Alphabet Run → Double Alphabet → Tight Alphabet
   - No Repeats → Marathon
-  - Four-Letter Sprint → Gauntlet Lite → The Gauntlet
+  - Four-Letter Words → Four-Letter Sprint → The Gauntlet
 
 Score Attack Mode:
 - 5 game-specific presets: Blitz, Endurance, Alphabet Grind, Word Hoarder, Free Attack
@@ -93,18 +94,12 @@ Scoring Engine (shared):
     Hard = streak reset + escalating (−5, −10, −20, −40, doubles per violation in 30s window)
 
 Game UI:
-- Per-word feedback: "+N" or "+N ×2.0" flashes green; "STREAK LOST" flashes red
+- HyperCard / System 7 aesthetic app-wide (black/white, Courier, heavy borders)
+- Per-word feedback: "+N" or "+N ×2.0" flashes; "STREAK LOST" on violation
 - Streak display: color escalates (white → yellow → orange → red → magenta)
 - Live sidebar: challenge name, score (36pt), streak, timer, word progress
 - Results panel: stars, score, stats, NEW HIGH SCORE callout, unlock notifications
 - Persistent leaderboard: ~/.tether/scores.json, per-challenge per-difficulty
-
-KNOWN GAME MODE BUGS (in progress)
-------------------------------------
-- dictCheck may not be enforced in game mode scoring — nonsense words like
-  "aaaa" and "zzzz" pass and count as compliant. CRITICAL: needs fix.
-- Proper nouns in SCOWL-80 (e.g., "Nils") may pass dictCheck via
-  case-insensitive matching — should probably reject proper nouns.
 
 USER FEATURES
 -------------
@@ -140,8 +135,8 @@ Release: softprops/action-gh-release@v2 auto-attaches binaries to GitHub Release
 RELEASE CHECKLIST (important — learned the hard way)
 -----------------------------------------------------
 Before tagging any release, THREE things must match:
-  1. VERSION = "X.Y.Z"          (near top of tether.py)
-  2. self.root.title("TETHER  vX.Y.Z")   (in __init__)
+  1. VERSION = "X.Y.Z"          (in constants.py)
+  2. self.root.title("TETHER  vX.Y.Z")   (in tether.py __init__)
   3. git tag -a vX.Y.Z          (the actual tag)
 All three must be identical or the update notifier will falsely trigger.
 
@@ -166,7 +161,6 @@ KNOWN HISTORY / GOTCHAS
 
 DEVELOPER PREFERENCES
 ---------------------
-- Single Python file where possible
 - Minimal dependencies
 - Simplest thing that works
 - No frameworks unless they earn their place
@@ -175,6 +169,7 @@ DEVELOPER PREFERENCES
 
 ROADMAP (informal)
 ------------------
-v0.4+  — Game Mode release, layout fixes, screen size issues, UX refinements
-Future — README expansion with download links and screenshots
-Future — consider web version (Phoenix LiveView on Fly.io) for broader reach
+v0.4.0 — Game Mode release (current, in development on game-mode branch)
+Phase 2 — Analytics: session history graphs, per-challenge stats, progress over time
+Future  — README expansion with download links and screenshots
+Future  — consider web version (Phoenix LiveView on Fly.io) for broader reach

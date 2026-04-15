@@ -388,7 +388,7 @@ class ConstrainedApp:
         self._sb_canvas.bind_all("<MouseWheel>", _mw)
 
         # Game mode sidebar (initially hidden, built after _build_sidebar_contents)
-        self._game_sb_frame = tk.Frame(sb, bg=GAME_BG)
+        self._game_sb_frame = tk.Frame(sb, bg=HC_BG)
 
         self._build_sidebar_contents()
         self._build_game_sidebar()
@@ -1253,14 +1253,14 @@ class ConstrainedApp:
             return
         if inv:
             self._countdown_overlay.config(
-                text=text, fg="#FFFFFF", bg="#000000",
+                text=text, fg=HC_BG, bg=HC_BOR,
                 font=("Courier", size, "bold"),
                 highlightthickness=0)
         else:
             self._countdown_overlay.config(
-                text=text, fg="#000000", bg="#FFFFFF",
+                text=text, fg=HC_FG, bg=HC_BG,
                 font=("Courier", size, "bold"),
-                highlightthickness=2, highlightbackground="#000000")
+                highlightthickness=2, highlightbackground=HC_BOR)
         self._countdown_overlay.place(relx=0.5, rely=0.5, anchor="center")
         self._countdown_overlay.lift()
 
